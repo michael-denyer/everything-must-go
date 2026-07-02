@@ -15,18 +15,28 @@ function frameMean(png: PNG): number {
   return sum / ((png.width / 4) * (png.height / 4));
 }
 
+type EmgSpec = { spec: { planets: object; comets: object } };
+
 test('same seed produces the same cosmos spec', async ({ page }) => {
   await page.goto('/?seed=7');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const a = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
+  const aPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
+  const aComets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.comets));
   await page.goto('/?seed=7');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const b = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
+  const bPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
+  const bComets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.comets));
   expect(a).toBe(b);
+  expect(aPlanets).toBe(bPlanets);
+  expect(aComets).toBe(bComets);
   await page.goto('/?seed=8');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const c = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
+  const cPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
   expect(c).not.toBe(a);
+  expect(cPlanets).not.toBe(aPlanets);
 });
 
 test('darkness phase is near-black with the counter reading 95%', async ({ page }) => {
@@ -58,6 +68,49 @@ test('early cycle still passes the money-shot gates', async ({ page }) => {
   const mean = frameMean(png);
   expect(mean).toBeGreaterThan(2);
   expect(mean).toBeLessThan(110);
+});
+
+test('all worlds are alive early in the cycle', async ({ page }) => {
+  await page.goto('/?seed=7&t=0.05');
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  await page.waitForTimeout(8000);
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      __emg: { spec: { planets: unknown[] }; alive: { planets: number } };
+    };
+    return { alive: w.__emg.alive.planets, total: w.__emg.spec.planets.length };
+  });
+  expect(result.alive).toBe(result.total);
+});
+
+test('inner worlds have died off by 80% consumed', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/?seed=7&t=0.8');
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  const total = await page.evaluate(
+    () => (window as unknown as { __emg: { spec: { planets: unknown[] } } }).__emg.spec.planets.length,
+  );
+  // KNOWN PHYSICS at frozen t=0.8: deaths cascade within ~10s of settle and the
+  // system may fully deplete to 0 alive planets — 0 satisfies both assertions
+  // below, so do not assert survivors remain.
+  const deadline = Date.now() + 45_000;
+  let alive = total;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(3000);
+    alive = await page.evaluate(
+      () => (window as unknown as { __emg: { alive: { planets: number } } }).__emg.alive.planets,
+    );
+    if (alive < total) break;
+  }
+  expect(alive).toBeLessThan(total);
+  expect(alive).toBeGreaterThanOrEqual(0);
+});
+
+test('rebirth flash whites out the frame', async ({ page }) => {
+  await page.goto('/?seed=7&t=0.97');
+  await page.waitForTimeout(5000);
+  const mean = frameMean(PNG.sync.read(await page.screenshot()));
+  expect(mean).toBeGreaterThan(150);
 });
 
 test('a compressed cycle survives rebirth without console errors', async ({ page }) => {

@@ -22,7 +22,8 @@ URL controls: `?seed=<n>` picks the cosmos, `?cycle=<seconds>` compresses the cy
 
 - [x] Milestone 1: money shot — GPU disk, lensed shadow + photon ring + fold, bloom
 - [x] Milestone 2: the consumption cycle and rebirth
-- [ ] Milestone 3: planets, moons, belt, comets, nebulae, galaxies
+- [x] Milestone 3a: solar system — planets, moons, rings, belt, comets, ring halo
+- [ ] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
 - [ ] Milestone 4: cursor well, silhouette cast, rogue-hole merger
 - [ ] Milestone 5: adaptive score and enter gate
 - [ ] Milestone 6: quality tiers, mobile, deploy
