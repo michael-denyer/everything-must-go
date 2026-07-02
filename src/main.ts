@@ -107,6 +107,7 @@ function frame(now: number): void {
   flashDecay = Math.max(0, flashDecay - dt * 0.8);
   post.lensingUpdate(camera, innerWidth, innerHeight, p.holeR);
   post.lensing.setFlash(Math.max(p.flash, flashDecay));
+  post.lensing.setFade(p.fade);
   post.composer.render();
 
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;
