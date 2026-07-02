@@ -20,11 +20,17 @@
       position: fixed; bottom: 14px; right: 16px; color: rgba(168, 178, 205, .8);
       font-family: ui-monospace, monospace; font-size: 12px; display: none;
     }
+    #counter {
+      position: fixed; bottom: 14px; left: 22px; color: rgba(168, 178, 205, .62);
+      font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1px;
+      user-select: none; pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <canvas id="app"></canvas>
   <div id="title">EVERYTHING MUST GO<small>a spinning black hole is closing this cosmos</small></div>
+  <div id="counter"></div>
   <div id="debug"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
