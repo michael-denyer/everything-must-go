@@ -94,8 +94,8 @@ function frame(now: number): void {
   const p = evalCycle(spec, effT);
 
   // Contract with gpuSim.ts SIM_COMMON respawn margins: effective cull radius here
-  // is holeR*1.143 (1.27 * 0.9 needsRespawn threshold); the seeder floor of
-  // 1.2*holeR0 in diskSeeder stays above that so respawned particles don't re-cull.
+  // is holeR*1.143 (1.27 * 0.9 needsRespawn threshold); cosmosGen keeps diskInner0
+  // >= 1.2*holeR0, above that cull at cycle start, so freshly seeded particles survive.
   const innerR = Math.max(spec.diskInner0, p.holeR * 1.27);
   sim.setParams({ gm: p.gm, innerR, outerR: spec.diskOuter0, drag: p.drag, respawnOn: p.diskRespawn });
   sim.step(dt);

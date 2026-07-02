@@ -18,8 +18,8 @@ const SIM_COMMON = /* glsl */ `
   }
 
   // Contract with main.ts's innerR = holeR*1.27: this 0.9 margin makes the
-  // effective cull radius holeR*1.143; diskSeeder's 1.2*holeR0 seeding floor
-  // stays above that so respawned particles don't immediately re-cull.
+  // effective cull radius holeR*1.143; cosmosGen's diskInner0 >= 1.2*holeR0 floor
+  // stays above that so freshly seeded particles don't immediately cull.
   bool needsRespawn(vec3 pos) {
     float r = length(pos.xz);
     return r < uInnerR * 0.9 || r > uOuterR * 1.6;

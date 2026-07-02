@@ -84,10 +84,11 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
   );
   expect(errors).toEqual([]);
 
-  // Pins the rebirth boundary against the stale-params corruption class: if the
-  // reseed ever runs after evalCycle again, cosmos no. 2's first frames would be
-  // driven by cosmos no. 1's end-of-cycle params (near-zero holeR/drag), producing
-  // either a near-black frame (mean <= 2) or a blown-out one (mean >= 110).
+  // Tripwire for extreme rebirth-boundary failures: a dead render or fade stuck
+  // at 0 reads near-black (mean <= 2); a stuck whiteout reads blown-out (>= 110).
+  // The historical stale-params corruption itself measured ~31 (inside this band);
+  // the reorder in main.ts frame() is the real guard against that class — this
+  // check only catches its extreme ends.
   // The rebirth whiteout (flashDecay -0.8/s of dt, with dt clamped at MAX_DT)
   // decays in wall time scaled by that clamping — ~5s at 8 fps, ~1.3s at 120 fps —
   // so poll past it before judging the reborn frame (measured 155 mid-flash at +3s).
