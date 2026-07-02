@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, TEX_SIZE } from './config';
 import { createDiskPoints } from './render/diskPoints';
+import { createPostChain } from './render/postChain';
 import { createStarfield } from './render/starfield';
 import { createScene } from './scene';
 import { GpuSim } from './sim/gpuSim';
@@ -26,6 +27,9 @@ const disk = createDiskPoints(TEX_SIZE);
 scene.add(disk.points);
 scene.add(createStarfield());
 
+const post = createPostChain(renderer, scene, camera);
+post.lensing.update(camera, innerWidth, innerHeight);
+
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 const debug = new URLSearchParams(location.search).has('debug');
 if (debug) debugEl.style.display = 'block';
@@ -37,6 +41,7 @@ function onResize(): void {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  post.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', onResize);
 
@@ -53,7 +58,8 @@ function frame(now: number): void {
       `sim ok: finite=${probe.finite} r=[${probe.min.toFixed(2)}, ${probe.max.toFixed(2)}]`,
     );
   }
-  renderer.render(scene, camera);
+  post.lensing.update(camera, innerWidth, innerHeight);
+  post.composer.render();
   if (debug) {
     frames++;
     if (now - fpsWindowStart >= 1000) {
