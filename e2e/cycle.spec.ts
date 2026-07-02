@@ -83,4 +83,13 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
     { timeout: 240_000 },
   );
   expect(errors).toEqual([]);
+
+  // Pins the rebirth boundary against the stale-params corruption class: if the
+  // reseed ever runs after evalCycle again, cosmos no. 2's first frames would be
+  // driven by cosmos no. 1's end-of-cycle params (near-zero holeR/drag), producing
+  // either a near-black frame (mean <= 2) or a blown-out one (mean >= 110).
+  await page.waitForTimeout(3000);
+  const rebirthMean = frameMean(PNG.sync.read(await page.screenshot()));
+  expect(rebirthMean).toBeGreaterThan(2);
+  expect(rebirthMean).toBeLessThan(110);
 });

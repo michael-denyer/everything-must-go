@@ -84,16 +84,18 @@ function frame(now: number): void {
   last = now;
 
   cycleT += dt;
+  if (!Number.isFinite(tFreeze) && cycleT >= spec.cycleSeconds) {
+    flashDecay = 1;
+    seedCosmos(spec.seed + 1);
+  }
   const effT = Number.isFinite(tFreeze)
     ? Math.min(Math.max(tFreeze, 0), 1) * spec.cycleSeconds
     : cycleT;
   const p = evalCycle(spec, effT);
 
-  if (!Number.isFinite(tFreeze) && cycleT >= spec.cycleSeconds) {
-    flashDecay = 1;
-    seedCosmos(spec.seed + 1);
-  }
-
+  // Contract with gpuSim.ts SIM_COMMON respawn margins: effective cull radius here
+  // is holeR*1.143 (1.27 * 0.9 needsRespawn threshold); the seeder floor of
+  // 1.2*holeR0 in diskSeeder stays above that so respawned particles don't re-cull.
   const innerR = Math.max(spec.diskInner0, p.holeR * 1.27);
   sim.setParams({ gm: p.gm, innerR, outerR: spec.diskOuter0, drag: p.drag, respawnOn: p.diskRespawn });
   sim.step(dt);
