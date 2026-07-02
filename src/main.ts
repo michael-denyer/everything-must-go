@@ -110,7 +110,13 @@ function frame(now: number): void {
 
   flashDecay = Math.max(0, flashDecay - dt * 0.8);
   post.lensingUpdate(camera, innerWidth, innerHeight, p.holeR);
-  post.lensing.setFlash(Math.max(p.flash, flashDecay));
+  post.setFlash(Math.max(p.flash, flashDecay));
+  // Bloom retires with the cosmos — in darkness nothing should glow. This
+  // closes the scalar-threshold inversion between the ring halo (needs a low
+  // threshold early) and the darkness gate (needs bloom silent late): the
+  // drained disk's additive overdraw still sums to 4-8 HDR units at t=0.95
+  // when lensed around the shadow edge, above the ring emissive's own 2.4.
+  post.setCycleFade(p.fade);
   // Squared: ACES compression keeps linearly-faded HDR emissive visually bright
   // (linear measured 11.2/255 at t=0.95 vs the <8 darkness gate; squared 7.39).
   // Exponent 2 is an empirical fit against the ACES output, not a derived inverse.
