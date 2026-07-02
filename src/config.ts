@@ -29,4 +29,9 @@ export const BLOOM_STRENGTH = 0.16;
 export const BLOOM_RADIUS = 0.02;
 export const BLOOM_THRESHOLD = 1.5;
 
+// Global tone-mapping exposure, MD-tuned by eye on the live view ("brightness
+// needs turning down slightly", 2026-07-02). Scales everything uniformly
+// before ACES; pixel gates were re-run at this value.
+export const EXPOSURE = 0.85;
+
 export const MAX_DT = 1 / 30;

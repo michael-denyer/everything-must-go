@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, SHADOW_R } from '../config';
+import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, EXPOSURE, SHADOW_R } from '../config';
 import { createLensingPass } from './lensing';
 import { createShadowRecarve } from './shadowRecarve';
 import { projectHole } from './projectHole';
@@ -22,6 +22,7 @@ export function createPostChain(
   setSize(width: number, height: number): void;
 } {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = EXPOSURE;
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
