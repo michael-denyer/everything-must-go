@@ -8,14 +8,23 @@ const VERT = /* glsl */ `
   uniform sampler2D uPositions;
   uniform sampler2D uVelocities;
   uniform float uPixelRatio;
+  uniform float uHeatInner;
+  uniform float uHeatOuter;
   varying float vHeat;
   varying float vDoppler;
 
   void main() {
     vec3 pos = texture2D(uPositions, uv).xyz;
+    if (pos.x > 50.0) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      vHeat = 0.0;
+      vDoppler = 0.0;
+      return;
+    }
     vec3 vel = texture2D(uVelocities, uv).xyz;
     float r = length(pos.xz);
-    vHeat = pow(clamp(1.0 - (r - ${DISK_INNER.toFixed(3)}) / (${(DISK_OUTER - DISK_INNER).toFixed(3)}), 0.0, 1.0), 1.6);
+    vHeat = pow(clamp(1.0 - (r - uHeatInner) / max(uHeatOuter - uHeatInner, 1e-4), 0.0, 1.0), 1.6);
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     vec3 velView = (modelViewMatrix * vec4(vel, 0.0)).xyz;
     vDoppler = 1.0 + 0.55 * clamp(velView.x / max(length(velView), 1e-4), -1.0, 1.0);
@@ -27,12 +36,13 @@ const VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   varying float vHeat;
   varying float vDoppler;
+  uniform float uFade;
   ${'$'}{blackbody}
 
   void main() {
     float d = length(gl_PointCoord - 0.5);
     float alpha = smoothstep(0.5, 0.08, d);
-    vec3 col = blackbody(vHeat) * (0.35 + vHeat * 1.45) * vDoppler;
+    vec3 col = blackbody(vHeat) * (0.35 + vHeat * 1.45) * vDoppler * uFade;
     gl_FragColor = vec4(col * alpha, 1.0);
   }
 `;
@@ -40,6 +50,7 @@ const FRAG = /* glsl */ `
 export function createDiskPoints(texSize: number): {
   points: THREE.Points;
   update(sim: GpuSim): void;
+  setParams(p: { heatInner: number; heatOuter: number; fade: number }): void;
 } {
   const count = texSize * texSize;
   const geometry = new THREE.BufferGeometry();
@@ -59,6 +70,9 @@ export function createDiskPoints(texSize: number): {
       uPositions: { value: null },
       uVelocities: { value: null },
       uPixelRatio: { value: Math.min(devicePixelRatio, 2) },
+      uHeatInner: { value: DISK_INNER },
+      uHeatOuter: { value: DISK_OUTER },
+      uFade: { value: 1 },
     },
     transparent: true,
     blending: THREE.AdditiveBlending,
@@ -73,6 +87,11 @@ export function createDiskPoints(texSize: number): {
     update(sim: GpuSim): void {
       material.uniforms.uPositions!.value = sim.positionTexture;
       material.uniforms.uVelocities!.value = sim.velocityTexture;
+    },
+    setParams(p: { heatInner: number; heatOuter: number; fade: number }): void {
+      material.uniforms.uHeatInner!.value = p.heatInner;
+      material.uniforms.uHeatOuter!.value = p.heatOuter;
+      material.uniforms.uFade!.value = p.fade;
     },
   };
 }

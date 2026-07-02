@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, TEX_SIZE } from './config';
+import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, SHADOW_R, TEX_SIZE } from './config';
 import { createDiskPoints } from './render/diskPoints';
 import { createPostChain } from './render/postChain';
 import { createStarfield } from './render/starfield';
@@ -28,7 +28,7 @@ scene.add(disk.points);
 scene.add(createStarfield());
 
 const post = createPostChain(renderer, scene, camera);
-post.lensing.update(camera, innerWidth, innerHeight);
+post.lensingUpdate(camera, innerWidth, innerHeight, SHADOW_R);
 
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 const debug = new URLSearchParams(location.search).has('debug');
@@ -58,7 +58,7 @@ function frame(now: number): void {
       `sim ok: finite=${probe.finite} r=[${probe.min.toFixed(2)}, ${probe.max.toFixed(2)}]`,
     );
   }
-  post.lensing.update(camera, innerWidth, innerHeight);
+  post.lensingUpdate(camera, innerWidth, innerHeight, SHADOW_R);
   post.composer.render();
   if (debug) {
     frames++;

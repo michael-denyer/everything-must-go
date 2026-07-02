@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { blackbodyGlsl } from '../color/blackbody';
-import { SHADOW_R } from '../config';
 import { projectHole } from './projectHole';
 
 const FRAG = /* glsl */ `
@@ -10,6 +9,7 @@ const FRAG = /* glsl */ `
   uniform vec2 uHoleUv;
   uniform float uShadowUv;
   uniform float uAspect;
+  uniform float uFlash;
   varying vec2 vUv;
   ${'$'}{blackbody}
 
@@ -35,13 +35,15 @@ const FRAG = /* glsl */ `
     col += vec3(1.0, 0.98, 0.94) * ring * 2.4;
 
     col *= smoothstep(rs * 0.985, rs * 1.015, d);
+    col = mix(col, vec3(1.0, 0.98, 0.94), uFlash);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
 export function createLensingPass(): {
   pass: ShaderPass;
-  update(camera: THREE.PerspectiveCamera, width: number, height: number): void;
+  update(camera: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void;
+  setFlash(f: number): void;
 } {
   const pass = new ShaderPass({
     name: 'LensingPass',
@@ -50,6 +52,7 @@ export function createLensingPass(): {
       uHoleUv: { value: new THREE.Vector2(0.5, 0.5) },
       uShadowUv: { value: 0.1 },
       uAspect: { value: 16 / 9 },
+      uFlash: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -63,11 +66,14 @@ export function createLensingPass(): {
 
   return {
     pass,
-    update(camera: THREE.PerspectiveCamera, width: number, height: number): void {
-      const { centerUv, radiusUv } = projectHole(camera, SHADOW_R, width, height);
+    update(camera: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void {
+      const { centerUv, radiusUv } = projectHole(camera, shadowR, width, height);
       (pass.uniforms.uHoleUv!.value as THREE.Vector2).set(centerUv[0], centerUv[1]);
       pass.uniforms.uShadowUv!.value = radiusUv;
       pass.uniforms.uAspect!.value = width / height;
+    },
+    setFlash(f: number): void {
+      pass.uniforms.uFlash!.value = f;
     },
   };
 }

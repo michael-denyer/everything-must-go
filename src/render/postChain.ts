@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from '../config';
+import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, SHADOW_R } from '../config';
 import { createLensingPass } from './lensing';
 
 export function createPostChain(
@@ -14,6 +14,7 @@ export function createPostChain(
 ): {
   composer: EffectComposer;
   lensing: ReturnType<typeof createLensingPass>;
+  lensingUpdate(camera: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void;
   setSize(width: number, height: number): void;
 } {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -38,13 +39,19 @@ export function createPostChain(
 
   composer.addPass(new OutputPass());
 
+  let lastShadowR = SHADOW_R;
+
   return {
     composer,
     lensing,
+    lensingUpdate(cam: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void {
+      lastShadowR = shadowR;
+      lensing.update(cam, width, height, shadowR);
+    },
     setSize(width: number, height: number): void {
       composer.setSize(width, height);
       bloom.setSize(width, height);
-      lensing.update(camera, width, height);
+      lensing.update(camera, width, height, lastShadowR);
     },
   };
 }
