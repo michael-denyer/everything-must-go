@@ -3,10 +3,15 @@ import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, SHADOW_R, TEX_SIZE } from './confi
 import { createScene } from './scene';
 import { generateCosmos, type CosmosSpec } from './core/cosmosGen';
 import { evalCycle } from './core/cycle';
+import { generatePalette, paletteRgb } from './core/palette';
 import { GpuSim } from './sim/gpuSim';
 import { createDiskPoints } from './render/diskPoints';
 import { createStarfield } from './render/starfield';
 import { createPostChain } from './render/postChain';
+import { createDebrisPool } from './render/debris';
+import { createBelt } from './render/belt';
+import { createPlanet, type PlanetBody } from './render/planet';
+import { createComet, type CometBody } from './render/comet';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -31,6 +36,14 @@ let spec: CosmosSpec;
 let sim: GpuSim;
 let disk: ReturnType<typeof createDiskPoints>;
 let stars: ReturnType<typeof createStarfield>;
+let debris: ReturnType<typeof createDebrisPool>;
+let belt: ReturnType<typeof createBelt>;
+let bodies: Array<PlanetBody | CometBody> = [];
+// PlanetBody/CometBody share an identical structural shape (object/update/alive/
+// dispose) with no runtime discriminant field, so __emg's per-kind alive counts
+// need a side channel — set once per cosmos from the construction site below,
+// read (never mutated) when the frame loop tallies alive bodies each frame.
+let cometSet: Set<PlanetBody | CometBody> = new Set();
 let cycleT = 0;
 let flashDecay = 0;
 
@@ -63,6 +76,30 @@ function seedCosmos(seed: number): void {
     { object: disk.points, dispose: () => { disk.points.geometry.dispose(); (disk.points.material as THREE.Material).dispose(); } },
     { object: stars.points, dispose: () => { stars.points.geometry.dispose(); (stars.points.material as THREE.Material).dispose(); } },
   );
+
+  const palette = generatePalette(spec.paletteSeed);
+  debris = createDebrisPool();
+  belt = createBelt({
+    count: spec.beltCount,
+    inner: spec.beltInner,
+    rgb: paletteRgb(palette, spec.beltHueIdx, 0.5, 0.55),
+    seed: spec.seed + 7,
+  });
+  scene.add(debris.points);
+  scene.add(belt.points);
+  disposables.push(
+    { object: debris.points, dispose: () => debris.dispose() },
+    { object: belt.points, dispose: () => belt.dispose() },
+  );
+
+  const planetBodies = spec.planets.map((ps) => createPlanet(ps, palette, GM));
+  const cometBodies = spec.comets.map((cs) => createComet(cs, GM));
+  bodies = [...planetBodies, ...cometBodies];
+  cometSet = new Set(cometBodies);
+  for (const b of bodies) {
+    scene.add(b.object);
+    disposables.push({ object: b.object, dispose: () => b.dispose() });
+  }
 }
 
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
@@ -105,6 +142,19 @@ function frame(now: number): void {
   disk.setParams({ heatInner: innerR, heatOuter: spec.diskOuter0, fade: p.fade });
   stars.setParams({ plunge: p.starPlunge, fade: p.fade });
 
+  for (const b of bodies) {
+    if (!b.alive) continue;
+    b.update(dt, p.gm, p.drag, p.holeR, debris.spawn);
+  }
+  bodies = bodies.filter((b) => {
+    if (b.alive) return true;
+    scene.remove(b.object);
+    b.dispose();
+    return false;
+  });
+  belt.setParams({ progress: p.progress, time: cycleT });
+  debris.update(dt, p.gm, p.drag * 2, p.holeR);
+
   camera.position.set(CAM_POS[0] * p.camDist, CAM_POS[1] * p.camDist, CAM_POS[2] * p.camDist);
   camera.lookAt(0, 0, 0);
 
@@ -124,7 +174,10 @@ function frame(now: number): void {
   post.composer.render();
 
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;
-  (window as unknown as { __emg: object }).__emg = { spec, params: p };
+  let aliveComets = 0;
+  for (const b of bodies) if (cometSet.has(b)) aliveComets++;
+  const aliveCounts = { planets: bodies.length - aliveComets, comets: aliveComets };
+  (window as unknown as { __emg: object }).__emg = { spec, params: p, alive: aliveCounts };
 
   if (debug) {
     frames++;
