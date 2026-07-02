@@ -34,7 +34,7 @@ let stars: ReturnType<typeof createStarfield>;
 let cycleT = 0;
 let flashDecay = 0;
 
-const disposables: Array<{ points: THREE.Points }> = [];
+const disposables: Array<{ object: THREE.Object3D; dispose(): void }> = [];
 
 function seedCosmos(seed: number): void {
   cosmosNo++;
@@ -51,16 +51,18 @@ function seedCosmos(seed: number): void {
     seed: spec.diskSeed,
   });
   for (const d of disposables) {
-    scene.remove(d.points);
-    d.points.geometry.dispose();
-    (d.points.material as THREE.Material).dispose();
+    scene.remove(d.object);
+    d.dispose();
   }
   disposables.length = 0;
   disk = createDiskPoints(TEX_SIZE);
   stars = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
   scene.add(stars.points);
   scene.add(disk.points);
-  disposables.push({ points: disk.points }, { points: stars.points });
+  disposables.push(
+    { object: disk.points, dispose: () => { disk.points.geometry.dispose(); (disk.points.material as THREE.Material).dispose(); } },
+    { object: stars.points, dispose: () => { stars.points.geometry.dispose(); (stars.points.material as THREE.Material).dispose(); } },
+  );
 }
 
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
