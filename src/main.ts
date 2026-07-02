@@ -107,7 +107,10 @@ function frame(now: number): void {
   flashDecay = Math.max(0, flashDecay - dt * 0.8);
   post.lensingUpdate(camera, innerWidth, innerHeight, p.holeR);
   post.lensing.setFlash(Math.max(p.flash, flashDecay));
-  post.lensing.setFade(p.fade);
+  // Squared: ACES compression keeps linearly-faded HDR emissive visually bright
+  // (linear measured 11.2/255 at t=0.95 vs the <8 darkness gate; squared 7.39).
+  // Exponent 2 is an empirical fit against the ACES output, not a derived inverse.
+  post.lensing.setFade(p.fade * p.fade);
   post.composer.render();
 
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;

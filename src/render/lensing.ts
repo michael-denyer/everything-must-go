@@ -30,16 +30,11 @@ const FRAG = /* glsl */ `
     float doppler = 1.0 + 0.55 * clamp(-dir.x, -1.0, 1.0);
     float topBand = exp(-pow((d - rs * 2.0) / (rs * 0.55), 2.0)) * smoothstep(0.05, 0.55, dir.y);
     float botBand = exp(-pow((d - rs * 1.45) / (rs * 0.28), 2.0)) * smoothstep(0.05, 0.55, -dir.y);
-    // uFade is squared: tone mapping (ACES, in OutputPass after this pass) is
-    // strongly compressive, so a linear HDR-space fade barely dims the displayed
-    // ring mid-fade. Squaring keeps the fade roughly perceptual. At uFade = 1
-    // (the whole pre-darkness cycle) this is exactly 1 — the money shot is
-    // untouched.
-    float emissiveFade = uFade * uFade;
-    col += blackbody(heat) * (topBand * 1.5 + botBand * 0.9) * doppler * 1.8 * emissiveFade;
+    // uFade fades only the lensed emissive (fold bands + photon ring).
+    col += blackbody(heat) * (topBand * 1.5 + botBand * 0.9) * doppler * 1.8 * uFade;
 
     float ring = exp(-pow((d - rs * 1.12) / (rs * 0.045), 2.0));
-    col += vec3(1.0, 0.98, 0.94) * ring * 2.4 * emissiveFade;
+    col += vec3(1.0, 0.98, 0.94) * ring * 2.4 * uFade;
 
     col *= smoothstep(rs * 0.985, rs * 1.015, d);
     col = mix(col, vec3(1.0, 0.98, 0.94), uFlash);
