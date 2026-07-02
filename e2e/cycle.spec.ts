@@ -71,6 +71,10 @@ test('early cycle still passes the money-shot gates', async ({ page }) => {
 });
 
 test('all worlds are alive early in the cycle', async ({ page }) => {
+  // Seed-dependent stability: seed 7's roster keeps every planet >= 5.7x the
+  // burst radius at t=0.05 (verified by simulation), but ~22% of the seed
+  // parameter space spawns a planet close enough to die within this 8s settle.
+  // If this test ever changes seed, re-check that margin first.
   await page.goto('/?seed=7&t=0.05');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(8000);
