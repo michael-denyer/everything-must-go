@@ -1,6 +1,7 @@
 // src/sim/gpuSim.ts
 import * as THREE from 'three';
 import { GPUComputationRenderer, type Variable } from 'three/addons/misc/GPUComputationRenderer.js';
+import { DRAG_BASE } from '../config';
 import { seedDisk, type DiskOpts } from './diskSeeder';
 
 const SIM_COMMON = /* glsl */ `
@@ -8,11 +9,17 @@ const SIM_COMMON = /* glsl */ `
   uniform float uGm;
   uniform float uInnerR;
   uniform float uOuterR;
+  uniform float uDrag;
+  uniform float uRespawnOn;
+  uniform float uThickness;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
   }
 
+  // Contract with main.ts's innerR = holeR*1.27: this 0.9 margin makes the
+  // effective cull radius holeR*1.143; cosmosGen's diskInner0 >= 1.2*holeR0 floor
+  // stays above that so freshly seeded particles don't immediately cull.
   bool needsRespawn(vec3 pos) {
     float r = length(pos.xz);
     return r < uInnerR * 0.9 || r > uOuterR * 1.6;
@@ -21,7 +28,7 @@ const SIM_COMMON = /* glsl */ `
   vec3 respawnPos(vec2 seed) {
     float r = mix(uOuterR * 0.75, uOuterR, hash(seed));
     float a = hash(seed.yx + 17.0) * 6.28318530718;
-    return vec3(cos(a) * r, (hash(seed + 3.0) * 2.0 - 1.0) * 0.02 * (1.0 + r), sin(a) * r);
+    return vec3(cos(a) * r, (hash(seed + 3.0) * 2.0 - 1.0) * uThickness * (1.0 + r), sin(a) * r);
   }
 
   vec3 respawnVel(vec3 pos) {
@@ -38,6 +45,10 @@ const POSITION_SHADER = /* glsl */ `
     vec3 pos = texture2D(texturePosition, uv).xyz;
     vec3 vel = texture2D(textureVelocity, uv).xyz;
     if (needsRespawn(pos)) {
+      if (uRespawnOn < 0.5) {
+        gl_FragColor = vec4(99.0, 99.0, 99.0, 0.0);
+        return;
+      }
       gl_FragColor = vec4(respawnPos(gl_FragCoord.xy), 0.0);
       return;
     }
@@ -52,12 +63,16 @@ const VELOCITY_SHADER = /* glsl */ `
     vec3 pos = texture2D(texturePosition, uv).xyz;
     vec3 vel = texture2D(textureVelocity, uv).xyz;
     if (needsRespawn(pos)) {
+      if (uRespawnOn < 0.5) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
       gl_FragColor = vec4(respawnVel(respawnPos(gl_FragCoord.xy)), 0.0);
       return;
     }
     float r2 = dot(pos, pos) + 3e-4;
     vec3 accel = -pos * (uGm / (r2 * sqrt(r2)));
-    vec3 next = (vel + accel * uDt) * (1.0 - 0.012 * uDt);
+    vec3 next = (vel + accel * uDt) * (1.0 - uDrag * uDt);
     gl_FragColor = vec4(next, 0.0);
   }
 `;
@@ -94,6 +109,9 @@ export class GpuSim {
       v.material.uniforms.uGm = { value: opts.gm };
       v.material.uniforms.uInnerR = { value: opts.innerR };
       v.material.uniforms.uOuterR = { value: opts.outerR };
+      v.material.uniforms.uDrag = { value: DRAG_BASE };
+      v.material.uniforms.uRespawnOn = { value: 1 };
+      v.material.uniforms.uThickness = { value: opts.thickness };
     }
 
     const err = this.compute.init();
@@ -104,6 +122,26 @@ export class GpuSim {
     this.posVar.material.uniforms.uDt!.value = dt;
     this.velVar.material.uniforms.uDt!.value = dt;
     this.compute.compute();
+  }
+
+  setParams(p: { gm: number; innerR: number; outerR: number; drag: number; respawnOn: boolean }): void {
+    for (const v of [this.posVar, this.velVar]) {
+      v.material.uniforms.uGm!.value = p.gm;
+      v.material.uniforms.uInnerR!.value = p.innerR;
+      v.material.uniforms.uOuterR!.value = p.outerR;
+      v.material.uniforms.uDrag!.value = p.drag;
+      v.material.uniforms.uRespawnOn!.value = p.respawnOn ? 1 : 0;
+    }
+  }
+
+  dispose(): void {
+    // compute.dispose() covers the fullscreen quad, each variable's
+    // initialValueTexture, and iterates variable.renderTargets disposing them —
+    // it does not touch variable.material, so that stays our responsibility.
+    this.compute.dispose();
+    for (const v of [this.posVar, this.velVar]) {
+      v.material.dispose();
+    }
   }
 
   get positionTexture(): THREE.Texture {

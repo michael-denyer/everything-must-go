@@ -7,6 +7,8 @@ export function projectHole(
   viewportWidth: number,
   viewportHeight: number,
 ): { centerUv: [number, number]; radiusUv: number } {
+  // Assumes the hole sits at the world origin; both projected points below
+  // bake that in. Revisit if the hole ever gets a position parameter.
   const center = new THREE.Vector3(0, 0, 0).project(camera);
   const right = new THREE.Vector3()
     .setFromMatrixColumn(camera.matrixWorld, 0)
