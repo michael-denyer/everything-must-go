@@ -46,16 +46,18 @@ const FORCE_SOFTENING = 3e-4; // matches debris.ts's force law exactly
 const STRETCH_DEBRIS_PER_SEC = 4 / (1 / 60); // "≤4/frame" budget expressed as a rate, capped per-frame below
 
 // ---- Lit-sphere shader shared by planet and moon meshes -------------------
-// VERT passes the world-space normal so the FRAG can dot it against the
-// per-frame hole direction; the disk is the light source, so the term is
-// recomputed every frame as the planet (or freed moon) moves (see uHoleDir
-// updates in updateHoleDir below).
+// VERT transforms the normal by uNormalMat — the inverse-transpose of the
+// mesh's world matrix, captured each frame AFTER position/rotation/scale are
+// written (see updateShadingUniforms). mat3(modelMatrix) would skew normals
+// under the anisotropic tidal stretch (up to ~5:1 radial vs tangential).
+// The disk is the light source, so uHoleDir is also refreshed per frame.
 
 const LIT_VERT = /* glsl */ `
+  uniform mat3 uNormalMat;
   varying vec3 vWorldNormal;
   varying vec2 vUv;
   void main() {
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vWorldNormal = normalize(uNormalMat * normal);
     vUv = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -80,6 +82,7 @@ function createLitMaterial(tex: THREE.CanvasTexture): THREE.ShaderMaterial {
     uniforms: {
       uTex: { value: tex },
       uHoleDir: { value: new THREE.Vector3(0, 0, 1) },
+      uNormalMat: { value: new THREE.Matrix3() },
     },
   });
 }
@@ -338,16 +341,24 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
   let alive = true;
   let disposed = false;
   let stretchDebrisCarry = 0; // fractional carry for the ≤4/frame stretch trickle
+  let debrisOrdinal = 0; // ordinal for cadence-independent stretch-debris seeding
+  let maxStretch = 0; // ratcheted tidal deformation — one-way, never relaxes
 
-  const stretchDebrisRand = mulberry32(spec.texSeed + 555);
   const ringDebrisRand = mulberry32(spec.texSeed + 7);
   const burstRand = mulberry32(spec.texSeed + 999);
 
-  function updateHoleDir(): void {
+  function updateShadingUniforms(): void {
+    // Normal matrices must be captured AFTER this frame's position/rotation/
+    // scale writes. group.updateMatrixWorld() recomputes the whole subtree
+    // (planet mesh + moon meshes) in one pass, so each mesh.matrixWorld is
+    // current before getNormalMatrix reads it.
+    group.updateMatrixWorld();
+
     const dir = new THREE.Vector3(-orbit.x, -orbit.y, -orbit.z);
     const len = dir.length() || 1e-6;
     dir.multiplyScalar(1 / len);
     (planetMaterial.uniforms.uHoleDir!.value as THREE.Vector3).copy(dir);
+    (planetMaterial.uniforms.uNormalMat!.value as THREE.Matrix3).getNormalMatrix(planetMesh.matrixWorld);
 
     for (const m of moons) {
       if (m.consumed) continue;
@@ -358,6 +369,7 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
       const mlen = mdir.length() || 1e-6;
       mdir.multiplyScalar(1 / mlen);
       (m.material.uniforms.uHoleDir!.value as THREE.Vector3).copy(mdir);
+      (m.material.uniforms.uNormalMat!.value as THREE.Matrix3).getNormalMatrix(m.mesh.matrixWorld);
     }
   }
 
@@ -428,6 +440,11 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
         planetTint[2],
       );
     }
+    // Release this moon's GPU resources now rather than at planet dispose();
+    // the final dispose() skips consumed moons, staying idempotent.
+    m.mesh.geometry.dispose();
+    m.material.dispose();
+    m.texture.dispose();
   }
 
   function burst(spawnDebris: SpawnDebris): void {
@@ -499,19 +516,25 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
         }
       });
 
-      const stretch = stretchFactor(r, holeR);
-      if (stretch > 0 && ratio > BURST) {
-        const radialAngle = Math.atan2(orbit.z, orbit.x);
-        planetMesh.rotation.y = radialAngle;
-        planetMesh.scale.set(1 + 2.4 * stretch, 1 - 0.3 * stretch, 1 - 0.3 * stretch);
+      // Tidal deformation is one-way: ratchet to the deepest stretch reached,
+      // so an eccentric orbit re-crossing STRETCH_START*holeR outward doesn't
+      // snap the mesh back to rest in a single frame. No reset branch — scale
+      // stays (1,1,1) until the ratchet first engages, then only ever deepens.
+      maxStretch = Math.max(maxStretch, stretchFactor(r, holeR));
+      if (maxStretch > 0) {
+        planetMesh.rotation.y = Math.atan2(orbit.z, orbit.x); // radial axis = local X
+        planetMesh.scale.set(1 + 2.4 * maxStretch, 1 - 0.3 * maxStretch, 1 - 0.3 * maxStretch);
 
-        stretchDebrisCarry += stretch * STRETCH_DEBRIS_PER_SEC * dt;
+        stretchDebrisCarry += maxStretch * STRETCH_DEBRIS_PER_SEC * dt;
         const budget = Math.min(4, Math.floor(stretchDebrisCarry));
         stretchDebrisCarry -= budget;
         for (let i = 0; i < budget; i++) {
-          const theta = stretchDebrisRand() * Math.PI * 2;
-          const phi = Math.acos(stretchDebrisRand() * 2 - 1);
-          const speed = 0.02 + stretchDebrisRand() * 0.05;
+          // Ordinal-seeded: the Nth shed particle's rolls depend only on
+          // (texSeed, N), never on frame cadence.
+          const rand = mulberry32((spec.texSeed ^ (0x9e3779b9 + debrisOrdinal++)) >>> 0);
+          const theta = rand() * Math.PI * 2;
+          const phi = Math.acos(rand() * 2 - 1);
+          const speed = 0.02 + rand() * 0.05;
           spawnDebris(
             orbit.x,
             orbit.y,
@@ -524,9 +547,6 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
             planetTint[2],
           );
         }
-      } else {
-        planetMesh.scale.set(1, 1, 1);
-        planetMesh.rotation.y = 0;
       }
 
       if (ratio <= BURST) {
@@ -536,7 +556,7 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
         return;
       }
 
-      updateHoleDir();
+      updateShadingUniforms();
     },
     dispose(): void {
       // Idempotent: the conductor may sweep dead bodies whose dispose already ran.
@@ -549,6 +569,7 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
       if (ringMaterial) ringMaterial.dispose();
       if (ringTexture) ringTexture.dispose();
       for (const m of moons) {
+        if (m.consumed) continue; // already released at consume time
         m.mesh.geometry.dispose();
         m.material.dispose();
         m.texture.dispose();

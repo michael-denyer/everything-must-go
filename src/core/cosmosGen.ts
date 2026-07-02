@@ -1,6 +1,7 @@
 import { CYCLE_SECONDS } from '../config';
 import { mulberry32 } from '../sim/random';
 
+// dist/size/speed are raw [0,1) rolls — scaled into world units downstream by render/planet.ts.
 export interface MoonSpec {
   dist: number;
   size: number;
