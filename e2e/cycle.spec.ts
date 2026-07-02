@@ -88,8 +88,16 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
   // reseed ever runs after evalCycle again, cosmos no. 2's first frames would be
   // driven by cosmos no. 1's end-of-cycle params (near-zero holeR/drag), producing
   // either a near-black frame (mean <= 2) or a blown-out one (mean >= 110).
-  await page.waitForTimeout(3000);
-  const rebirthMean = frameMean(PNG.sync.read(await page.screenshot()));
+  // The rebirth whiteout (flashDecay -0.8/s of dt, with dt clamped at MAX_DT)
+  // decays in wall time scaled by that clamping — ~5s at 8 fps, ~1.3s at 120 fps —
+  // so poll past it before judging the reborn frame (measured 155 mid-flash at +3s).
+  const rebirthDeadline = Date.now() + 30_000;
+  let rebirthMean = Number.POSITIVE_INFINITY;
+  while (Date.now() < rebirthDeadline) {
+    await page.waitForTimeout(2000);
+    rebirthMean = frameMean(PNG.sync.read(await page.screenshot()));
+    if (rebirthMean < 110) break;
+  }
   expect(rebirthMean).toBeGreaterThan(2);
   expect(rebirthMean).toBeLessThan(110);
 });
