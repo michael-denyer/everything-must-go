@@ -1,5 +1,16 @@
 import * as THREE from 'three';
-import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, SHADOW_R, TEX_SIZE } from './config';
+import {
+  DISK_INNER,
+  DISK_OUTER,
+  DISK_THICKNESS,
+  GM,
+  MAX_DT,
+  SEED,
+  SHADOW_R,
+  STAR_COUNT,
+  STAR_SHELL,
+  TEX_SIZE,
+} from './config';
 import { createDiskPoints } from './render/diskPoints';
 import { createPostChain } from './render/postChain';
 import { createStarfield } from './render/starfield';
@@ -25,7 +36,8 @@ const sim = new GpuSim(renderer, {
 
 const disk = createDiskPoints(TEX_SIZE);
 scene.add(disk.points);
-scene.add(createStarfield());
+const starfield = createStarfield(STAR_COUNT, [...STAR_SHELL], SEED + 1);
+scene.add(starfield.points);
 
 const post = createPostChain(renderer, scene, camera);
 post.lensingUpdate(camera, innerWidth, innerHeight, SHADOW_R);
