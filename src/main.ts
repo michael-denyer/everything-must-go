@@ -3,10 +3,15 @@ import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, SHADOW_R, TEX_SIZE } from './confi
 import { createScene } from './scene';
 import { generateCosmos, type CosmosSpec } from './core/cosmosGen';
 import { evalCycle } from './core/cycle';
+import { generatePalette, paletteRgb } from './core/palette';
 import { GpuSim } from './sim/gpuSim';
 import { createDiskPoints } from './render/diskPoints';
 import { createStarfield } from './render/starfield';
 import { createPostChain } from './render/postChain';
+import { createDebrisPool } from './render/debris';
+import { createBelt } from './render/belt';
+import { createPlanet, type PlanetBody } from './render/planet';
+import { createComet, type CometBody } from './render/comet';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -31,10 +36,18 @@ let spec: CosmosSpec;
 let sim: GpuSim;
 let disk: ReturnType<typeof createDiskPoints>;
 let stars: ReturnType<typeof createStarfield>;
+let debris: ReturnType<typeof createDebrisPool>;
+let belt: ReturnType<typeof createBelt>;
+let bodies: Array<PlanetBody | CometBody> = [];
+// PlanetBody/CometBody share an identical structural shape (object/update/alive/
+// dispose) with no runtime discriminant field, so __emg's per-kind alive counts
+// need a side channel — set once per cosmos from the construction site below,
+// read (never mutated) when the frame loop tallies alive bodies each frame.
+let cometSet: Set<PlanetBody | CometBody> = new Set();
 let cycleT = 0;
 let flashDecay = 0;
 
-const disposables: Array<{ points: THREE.Points }> = [];
+const disposables: Array<{ object: THREE.Object3D; dispose(): void }> = [];
 
 function seedCosmos(seed: number): void {
   cosmosNo++;
@@ -51,16 +64,52 @@ function seedCosmos(seed: number): void {
     seed: spec.diskSeed,
   });
   for (const d of disposables) {
-    scene.remove(d.points);
-    d.points.geometry.dispose();
-    (d.points.material as THREE.Material).dispose();
+    scene.remove(d.object);
+    d.dispose();
   }
   disposables.length = 0;
-  disk = createDiskPoints(TEX_SIZE);
-  stars = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
-  scene.add(stars.points);
-  scene.add(disk.points);
-  disposables.push({ points: disk.points }, { points: stars.points });
+  // Captured into function-local consts so each closure below is bound to
+  // *this* cosmos's instance, not whatever the module-level `let` holds when
+  // the sweep eventually runs. Bodies already do this via their loop-local
+  // `b` (see the disposables.push in the loop further down) — this removes
+  // the same ordering dependency from disk/stars/debris/belt, which used to
+  // be correct only because the sweep always ran before reassignment.
+  const dp = createDiskPoints(TEX_SIZE);
+  disk = dp;
+  const st = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
+  stars = st;
+  scene.add(st.points);
+  scene.add(dp.points);
+  disposables.push(
+    { object: dp.points, dispose: () => { dp.points.geometry.dispose(); (dp.points.material as THREE.Material).dispose(); } },
+    { object: st.points, dispose: () => { st.points.geometry.dispose(); (st.points.material as THREE.Material).dispose(); } },
+  );
+
+  const palette = generatePalette(spec.paletteSeed);
+  const de = createDebrisPool();
+  debris = de;
+  const bl = createBelt({
+    count: spec.beltCount,
+    inner: spec.beltInner,
+    rgb: paletteRgb(palette, spec.beltHueIdx, 0.5, 0.55),
+    seed: spec.seed + 7,
+  });
+  belt = bl;
+  scene.add(de.points);
+  scene.add(bl.points);
+  disposables.push(
+    { object: de.points, dispose: () => de.dispose() },
+    { object: bl.points, dispose: () => bl.dispose() },
+  );
+
+  const planetBodies = spec.planets.map((ps) => createPlanet(ps, palette, GM));
+  const cometBodies = spec.comets.map((cs) => createComet(cs, GM));
+  bodies = [...planetBodies, ...cometBodies];
+  cometSet = new Set(cometBodies);
+  for (const b of bodies) {
+    scene.add(b.object);
+    disposables.push({ object: b.object, dispose: () => b.dispose() });
+  }
 }
 
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
@@ -103,12 +152,35 @@ function frame(now: number): void {
   disk.setParams({ heatInner: innerR, heatOuter: spec.diskOuter0, fade: p.fade });
   stars.setParams({ plunge: p.starPlunge, fade: p.fade });
 
+  for (const b of bodies) {
+    if (!b.alive) continue;
+    b.update(dt, p.gm, p.drag, p.holeR, debris.spawn);
+  }
+  bodies = bodies.filter((b) => {
+    if (b.alive) return true;
+    scene.remove(b.object);
+    // Pruned bodies stay in `disposables` (pushed at construction, swept only
+    // on the next seedCosmos()) so dispose() runs again there. Safe only
+    // because dispose() is idempotent by design — guards live in planet.ts
+    // and comet.ts.
+    b.dispose();
+    return false;
+  });
+  belt.setParams({ progress: p.progress, time: cycleT });
+  debris.update(dt, p.gm, p.drag * 2, p.holeR);
+
   camera.position.set(CAM_POS[0] * p.camDist, CAM_POS[1] * p.camDist, CAM_POS[2] * p.camDist);
   camera.lookAt(0, 0, 0);
 
   flashDecay = Math.max(0, flashDecay - dt * 0.8);
   post.lensingUpdate(camera, innerWidth, innerHeight, p.holeR);
-  post.lensing.setFlash(Math.max(p.flash, flashDecay));
+  post.setFlash(Math.max(p.flash, flashDecay));
+  // Bloom retires with the cosmos — in darkness nothing should glow. This
+  // closes the scalar-threshold inversion between the ring halo (needs a low
+  // threshold early) and the darkness gate (needs bloom silent late): the
+  // drained disk's additive overdraw still sums to 4-8 HDR units at t=0.95
+  // when lensed around the shadow edge, above the ring emissive's own 2.4.
+  post.setCycleFade(p.fade);
   // Squared: ACES compression keeps linearly-faded HDR emissive visually bright
   // (linear measured 11.2/255 at t=0.95 vs the <8 darkness gate; squared 7.39).
   // Exponent 2 is an empirical fit against the ACES output, not a derived inverse.
@@ -116,7 +188,10 @@ function frame(now: number): void {
   post.composer.render();
 
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;
-  (window as unknown as { __emg: object }).__emg = { spec, params: p };
+  let aliveComets = 0;
+  for (const b of bodies) if (cometSet.has(b)) aliveComets++;
+  const aliveCounts = { planets: bodies.length - aliveComets, comets: aliveComets };
+  (window as unknown as { __emg: object }).__emg = { spec, params: p, alive: aliveCounts };
 
   if (debug) {
     frames++;
