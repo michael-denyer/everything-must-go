@@ -1,7 +1,7 @@
 // tests/projectHole.test.ts
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { projectHole } from '../src/render/projectHole';
+import { projectHole, uvToPixels } from '../src/render/projectHole';
 
 function makeCamera(z: number): THREE.PerspectiveCamera {
   const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 100);
@@ -33,5 +33,28 @@ describe('projectHole', () => {
     const { radiusUv } = projectHole(cam, 0.22, 1600, 900);
     expect(radiusUv).toBeGreaterThan(0.05);
     expect(radiusUv).toBeLessThan(0.06);
+  });
+});
+
+describe('uvToPixels', () => {
+  it('maps screen-center uv to the pixel center', () => {
+    expect(uvToPixels([0.5, 0.5], 1600, 900)).toEqual([800, 450]);
+  });
+
+  it('flips bottom-up uv into top-down pixel space (the flip detector)', () => {
+    // Camera looks down slightly, so the origin-hole's projected uv[1] sits
+    // ABOVE 0.5 (bottom-up NDC convention). If uvToPixels did not flip, that
+    // would incorrectly land in the LOWER half of the screen in pixels; the
+    // correct top-down mapping must land in the UPPER half instead.
+    const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 100);
+    cam.position.set(0, 0, 4.2);
+    cam.lookAt(0, -0.5, 0);
+    cam.updateMatrixWorld(true);
+
+    const { centerUv } = projectHole(cam, 0.22, 1600, 900);
+    expect(centerUv[1]).toBeGreaterThan(0.5);
+
+    const [, pixY] = uvToPixels(centerUv, 1600, 900);
+    expect(pixY).toBeLessThan(450);
   });
 });

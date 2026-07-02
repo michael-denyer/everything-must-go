@@ -221,15 +221,6 @@ function canFeed(phase: string): boolean {
   return (phase === 'decay' || phase === 'carnage') && countCastAlive() < 2;
 }
 
-function worldAngleFromClientXY(clientX: number, clientY: number): number | null {
-  pointerNdc.x = (clientX / innerWidth) * 2 - 1;
-  pointerNdc.y = -(clientY / innerHeight) * 2 + 1;
-  raycaster.setFromCamera(pointerNdc, camera);
-  const hit = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
-  return Math.atan2(hit.z, hit.x);
-}
-
 // ---- Rogue visual: small black circle mesh + thin ring sprite. ------------
 function createRogueVisual(): { group: THREE.Group; dispose(): void } {
   const group = new THREE.Group();
@@ -261,18 +252,17 @@ function createRogueVisual(): { group: THREE.Group; dispose(): void } {
   };
 }
 
-function updatePointer(clientX: number, clientY: number): void {
-  const angle = worldAngleFromClientXY(clientX, clientY);
-  if (angle === null) return;
+function updatePointer(clientX: number, clientY: number): number | null {
   pointerNdc.x = (clientX / innerWidth) * 2 - 1;
   pointerNdc.y = -(clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointerNdc, camera);
   const hit = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
+  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
   wellX = hit.x;
   wellZ = hit.z;
   wellActive = true;
   wellIdleTimer = 0;
+  return Math.atan2(hit.z, hit.x);
 }
 
 function isUiElement(target: EventTarget | null): boolean {
@@ -286,8 +276,7 @@ function onPointerMove(e: PointerEvent): void {
 
 function onPointerDown(e: PointerEvent): void {
   if (isUiElement(e.target)) return;
-  updatePointer(e.clientX, e.clientY);
-  const angle = worldAngleFromClientXY(e.clientX, e.clientY);
+  const angle = updatePointer(e.clientX, e.clientY);
   if (angle === null) return;
   if (canFeed(latestPhase)) {
     spawnCastMember(angle);

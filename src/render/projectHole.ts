@@ -21,3 +21,12 @@ export function projectHole(
   const dy = edgeUv[1] - centerUv[1];
   return { centerUv, radiusUv: Math.hypot(dx, dy) };
 }
+
+// Converts a bottom-up NDC-derived uv (y=0 at the bottom, as produced by
+// projectHole above) into top-down CSS pixel space (y=0 at the top). This is
+// the flip point between the shader convention (bottom-up) and DOM/CSS
+// convention (top-down) — callers handing a hole position to DOM elements
+// must go through here rather than scaling uv by width/height directly.
+export function uvToPixels(uv: [number, number], width: number, height: number): [number, number] {
+  return [uv[0] * width, (1 - uv[1]) * height];
+}

@@ -7,7 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, EXPOSURE, SHADOW_R } from '../config';
 import { createLensingPass } from './lensing';
 import { createShadowRecarve } from './shadowRecarve';
-import { projectHole } from './projectHole';
+import { projectHole, uvToPixels } from './projectHole';
 
 export function createPostChain(
   renderer: THREE.WebGLRenderer,
@@ -87,7 +87,12 @@ export function createPostChain(
       project(camera, width, height, lastShadowR);
     },
     holeScreen(): [number, number] {
-      return [lastCenterUv[0] * lastWidth, lastCenterUv[1] * lastHeight];
+      // Convention boundary: centerUv comes from projectHole() as NDC-derived
+      // (bottom-up, y=0 at the bottom) — correct as-is for the lensing/recarve
+      // shaders, which share that convention. DOM pixel space is top-down
+      // (y=0 at the top), so this getter is the one place that must flip y
+      // before handing the coordinate to CSS/DOM consumers (e.g. titleEater).
+      return uvToPixels(lastCenterUv, lastWidth, lastHeight);
     },
   };
 }
