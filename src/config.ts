@@ -35,3 +35,9 @@ export const BLOOM_THRESHOLD = 1.5;
 export const EXPOSURE = 0.85;
 
 export const MAX_DT = 1 / 30;
+
+// Cursor well: radius and pull strength of the gas disk's response to pointer
+// position. MD feel-tunes these at acceptance (single config constants, per
+// the milestone's tactile sign-off).
+export const WELL_RADIUS = 0.5;
+export const WELL_STRENGTH = 0.05;

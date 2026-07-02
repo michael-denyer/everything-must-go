@@ -12,6 +12,9 @@ const SIM_COMMON = /* glsl */ `
   uniform float uDrag;
   uniform float uRespawnOn;
   uniform float uThickness;
+  // xyz world pos, w strength (well) / consume radius (rogue); w=0 means off.
+  uniform vec4 uWell;
+  uniform vec4 uRogue;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -52,6 +55,14 @@ const POSITION_SHADER = /* glsl */ `
       gl_FragColor = vec4(respawnPos(gl_FragCoord.xy), 0.0);
       return;
     }
+    // Rogue consumption: same texel condition as the velocity shader's park
+    // branch below, so the position/velocity pair cannot desync (M2 park-pair
+    // discipline — see needsRespawn's uRespawnOn<0.5 branch above for the
+    // precedent of parking at 99s with zero velocity).
+    if (uRogue.w > 0.0 && distance(pos, uRogue.xyz) < uRogue.w) {
+      gl_FragColor = vec4(99.0, 99.0, 99.0, 0.0);
+      return;
+    }
     gl_FragColor = vec4(pos + vel * uDt, 0.0);
   }
 `;
@@ -70,9 +81,37 @@ const VELOCITY_SHADER = /* glsl */ `
       gl_FragColor = vec4(respawnVel(respawnPos(gl_FragCoord.xy)), 0.0);
       return;
     }
+    // Mirrors the rogue-consumption park branch in the position shader above:
+    // same texel condition (distance to uRogue.xyz < uRogue.w), zero velocity,
+    // so the pair reads the same previous position texture and cannot desync.
+    if (uRogue.w > 0.0 && distance(pos, uRogue.xyz) < uRogue.w) {
+      gl_FragColor = vec4(0.0);
+      return;
+    }
     float r2 = dot(pos, pos) + 3e-4;
     vec3 accel = -pos * (uGm / (r2 * sqrt(r2)));
+    // Rogue attractor: extra pull toward uRogue.xyz, independent of the
+    // consumption radius check above (particles outside uRogue.w still feel it).
+    // Folded into accel (like the main gravity term) so it scales by uDt below.
+    if (uRogue.w > 0.0) {
+      vec3 toRogue = uRogue.xyz - pos;
+      float d2r = dot(toRogue, toRogue);
+      vec3 dirR = toRogue / max(sqrt(d2r), 1e-4);
+      accel += dirR * (0.2 * uGm / (d2r + 3e-4));
+    }
     vec3 next = (vel + accel * uDt) * (1.0 - uDrag * uDt);
+    // Cursor well: attracts particles within WELL_RADIUS (0.25 = WELL_RADIUS²,
+    // baked as a literal since GLSL uniforms can't be squared at compile time).
+    // Added directly to next (not folded into accel) per contract — this term
+    // already bakes in uDt itself, applied post-drag like a direct nudge.
+    if (uWell.w > 0.0) {
+      vec3 toWell = uWell.xyz - pos;
+      float d2 = dot(toWell, toWell);
+      if (d2 < 0.25) {
+        vec3 dir = toWell / max(sqrt(d2), 1e-4);
+        next += dir * (uWell.w * uDt / (d2 + 0.006));
+      }
+    }
     gl_FragColor = vec4(next, 0.0);
   }
 `;
@@ -112,6 +151,8 @@ export class GpuSim {
       v.material.uniforms.uDrag = { value: DRAG_BASE };
       v.material.uniforms.uRespawnOn = { value: 1 };
       v.material.uniforms.uThickness = { value: opts.thickness };
+      v.material.uniforms.uWell = { value: new THREE.Vector4(0, 0, 0, 0) };
+      v.material.uniforms.uRogue = { value: new THREE.Vector4(0, 0, 0, 0) };
     }
 
     const err = this.compute.init();
@@ -131,6 +172,18 @@ export class GpuSim {
       v.material.uniforms.uOuterR!.value = p.outerR;
       v.material.uniforms.uDrag!.value = p.drag;
       v.material.uniforms.uRespawnOn!.value = p.respawnOn ? 1 : 0;
+    }
+  }
+
+  setWell(x: number, y: number, z: number, strength: number): void {
+    for (const v of [this.posVar, this.velVar]) {
+      (v.material.uniforms.uWell!.value as THREE.Vector4).set(x, y, z, strength);
+    }
+  }
+
+  setRogue(x: number, y: number, z: number, radius: number): void {
+    for (const v of [this.posVar, this.velVar]) {
+      (v.material.uniforms.uRogue!.value as THREE.Vector4).set(x, y, z, radius);
     }
   }
 
