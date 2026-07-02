@@ -3,12 +3,14 @@ import * as THREE from 'three';
 import { CONSUME } from '../core/tidal';
 import { mulberry32 } from '../sim/random';
 import type { Rgb } from '../core/palette';
+import type { Body } from './body';
 
 // Same Body shape as PlanetBody (src/render/planet.ts): object/update/alive/dispose.
 // Not imported from planet.ts — comets have no ring/moon lifecycle, so this is
 // the same interface re-declared locally rather than a shared base type.
-export interface CometBody {
-  object: THREE.Group; // head sprite + trail line, positioned in world space
+export interface CometBody extends Body {
+  readonly kind: 'comet';
+  readonly object: THREE.Group; // head sprite + trail line, positioned in world space
   update(
     dt: number,
     gm: number,
@@ -103,8 +105,16 @@ function visVivaTangentialVelocity(
 export function createComet(
   spec: { aphelion: number; perihelion: number; phase: number },
   gm0: number,
+  seed?: number,
 ): CometBody {
   const group = new THREE.Group();
+  // Inherited fix: seed shed-debris off the generator's own integer seed
+  // (cometSeeds[i], threaded in by the Task 5 conductor) rather than
+  // re-deriving one from the float phase. The float-phase derivation only
+  // remains as a fallback for when seed is undefined — main.ts still calls
+  // createComet(cs, GM) without a seed until Task 5 wires cometSeeds through;
+  // Task 5 removes this fallback once every caller passes seed.
+  const seedMaterial = seed !== undefined ? seed : Math.floor(spec.phase * 1e6) ^ 0x2545f491;
 
   // ---- Head ----
   const headGeometry = new THREE.BufferGeometry();
@@ -219,6 +229,7 @@ export function createComet(
   let shedOrdinal = 0; // ordinal for cadence-independent shed-debris seeding, planet.ts's idiom
 
   const body: CometBody = {
+    kind: 'comet' as const,
     object: group,
     alive: true,
     update(dt, gm, dragBase, holeR, spawnDebris): void {
@@ -246,10 +257,10 @@ export function createComet(
         while (shedCarry >= SHED_PERIOD) {
           shedCarry -= SHED_PERIOD;
           // Ordinal-seeded: the Nth shed particle's rolls depend only on the
-          // comet's own seed material (phase, folded into the ordinal via
-          // XOR) and N, never on frame cadence — matches planet.ts's stretch-
-          // debris idiom (mulberry32((seed ^ (0x9e3779b9 + ordinal++)) >>> 0)).
-          const seedMaterial = Math.floor(spec.phase * 1e6) ^ 0x2545f491;
+          // comet's own seed material (the generator's integer cometSeeds[i]
+          // when provided, folded into the ordinal via XOR) and N, never on
+          // frame cadence — matches planet.ts's stretch-debris idiom
+          // (mulberry32((seed ^ (0x9e3779b9 + ordinal++)) >>> 0)).
           const rand = mulberry32((seedMaterial ^ (0x9e3779b9 + shedOrdinal++)) >>> 0);
           const theta = rand() * Math.PI * 2;
           const phi = Math.acos(rand() * 2 - 1);

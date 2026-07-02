@@ -87,4 +87,34 @@ describe('generateCosmos', () => {
       }
     }
   });
+
+  it('draws rogue, cast, and comet-seed fields in ranges', () => {
+    let present = 0;
+    for (let s = 0; s < 400; s++) {
+      const c = generateCosmos(s);
+      if (c.rogue.present) {
+        present++;
+        expect(c.rogue.spawnP).toBeGreaterThanOrEqual(0.45);
+        expect(c.rogue.spawnP).toBeLessThanOrEqual(0.55);
+        expect(c.rogue.mergeP).toBeGreaterThanOrEqual(0.62);
+        expect(c.rogue.mergeP).toBeLessThanOrEqual(0.75);
+      }
+      expect(c.castCadence).toBeGreaterThanOrEqual(45);
+      expect(c.castCadence).toBeLessThanOrEqual(75);
+      expect(Number.isInteger(c.castSeed)).toBe(true);
+      expect(c.cometSeeds.length).toBe(c.comets.length);
+      for (const cs of c.cometSeeds) expect(Number.isInteger(cs)).toBe(true);
+    }
+    expect(present / 400).toBeGreaterThan(0.15);
+    expect(present / 400).toBeLessThan(0.35);
+  });
+
+  it('floors planet orbits clear of the burst radius', () => {
+    for (let s = 0; s < 200; s++) {
+      const c = generateCosmos(s);
+      for (const p of c.planets) {
+        expect(p.orbitR).toBeGreaterThanOrEqual(c.holeR0 * 2.0 * 1.35 - 1e-9);
+      }
+    }
+  });
 });

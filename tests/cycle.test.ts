@@ -59,4 +59,35 @@ describe('evalCycle', () => {
     expect(at(0.975).flash).toBe(1);
     expect(at(1).flash).toBe(1);
   });
+
+  it('activates and merges the rogue purely from spec and time', () => {
+    let spec9: ReturnType<typeof generateCosmos> | undefined;
+    for (let s = 0; s < 200 && !spec9; s++) {
+      const c = generateCosmos(s);
+      if (c.rogue.present) spec9 = c;
+    }
+    expect(spec9).toBeDefined();
+    const sp = spec9!;
+    const atP = (p: number) => evalCycle(sp, p * sp.cycleSeconds);
+    expect(atP(sp.rogue.spawnP - 0.01).rogueActive).toBe(false);
+    expect(atP(sp.rogue.spawnP + 0.01).rogueActive).toBe(true);
+    expect(atP(sp.rogue.mergeP - 0.01).rogueActive).toBe(true);
+    expect(atP(sp.rogue.mergeP + 0.001).rogueActive).toBe(false);
+    expect(atP(sp.rogue.mergeP + 0.001).rogueMerged).toBe(true);
+    const before = atP(sp.rogue.mergeP - 0.005).holeR;
+    const after = atP(sp.rogue.mergeP + 0.03).holeR;
+    expect(after / before).toBeGreaterThan(1.15);
+  });
+
+  it('keeps rogue fields inert for rogue-free cosmoses', () => {
+    let spec0: ReturnType<typeof generateCosmos> | undefined;
+    for (let s = 0; s < 200 && !spec0; s++) {
+      const c = generateCosmos(s);
+      if (!c.rogue.present) spec0 = c;
+    }
+    const sp = spec0!;
+    const p = evalCycle(sp, 0.7 * sp.cycleSeconds);
+    expect(p.rogueActive).toBe(false);
+    expect(p.rogueMerged).toBe(false);
+  });
 });

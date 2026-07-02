@@ -14,6 +14,8 @@ export interface CycleParams {
   camDist: number;
   fade: number;
   flash: number;
+  rogueActive: boolean;
+  rogueMerged: boolean;
 }
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -33,7 +35,13 @@ function phaseOf(p: number): Phase {
 
 export function evalCycle(spec: CosmosSpec, tSeconds: number): CycleParams {
   const p = clamp01(tSeconds / spec.cycleSeconds);
-  const holeR = spec.holeR0 * (1 + (spec.holeGrowth - 1) * Math.pow(p, 1.6));
+  const baseHoleR = spec.holeR0 * (1 + (spec.holeGrowth - 1) * Math.pow(p, 1.6));
+  const rogueActive = spec.rogue.present && p >= spec.rogue.spawnP && p < spec.rogue.mergeP;
+  const rogueMerged = spec.rogue.present && p >= spec.rogue.mergeP;
+  const mergeBoost = spec.rogue.present
+    ? 1 + 0.22 * smoothstep(spec.rogue.mergeP, spec.rogue.mergeP + 0.02, p)
+    : 1;
+  const holeR = baseHoleR * mergeBoost;
   return {
     progress: p,
     phase: phaseOf(p),
@@ -45,5 +53,7 @@ export function evalCycle(spec: CosmosSpec, tSeconds: number): CycleParams {
     camDist: 1 + 0.45 * smoothstep(0.1, 0.9, p),
     fade: p < 0.92 ? 1 : 1 - smoothstep(0.92, 0.965, p),
     flash: smoothstep(0.955, 0.975, p),
+    rogueActive,
+    rogueMerged,
   };
 }
