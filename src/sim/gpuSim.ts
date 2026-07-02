@@ -1,6 +1,7 @@
 // src/sim/gpuSim.ts
 import * as THREE from 'three';
 import { GPUComputationRenderer, type Variable } from 'three/addons/misc/GPUComputationRenderer.js';
+import { DRAG_BASE } from '../config';
 import { seedDisk, type DiskOpts } from './diskSeeder';
 
 const SIM_COMMON = /* glsl */ `
@@ -16,6 +17,9 @@ const SIM_COMMON = /* glsl */ `
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
   }
 
+  // Contract with main.ts's innerR = holeR*1.27: this 0.9 margin makes the
+  // effective cull radius holeR*1.143; diskSeeder's 1.2*holeR0 seeding floor
+  // stays above that so respawned particles don't immediately re-cull.
   bool needsRespawn(vec3 pos) {
     float r = length(pos.xz);
     return r < uInnerR * 0.9 || r > uOuterR * 1.6;
@@ -105,7 +109,7 @@ export class GpuSim {
       v.material.uniforms.uGm = { value: opts.gm };
       v.material.uniforms.uInnerR = { value: opts.innerR };
       v.material.uniforms.uOuterR = { value: opts.outerR };
-      v.material.uniforms.uDrag = { value: 0.012 };
+      v.material.uniforms.uDrag = { value: DRAG_BASE };
       v.material.uniforms.uRespawnOn = { value: 1 };
       v.material.uniforms.uThickness = { value: opts.thickness };
     }
@@ -131,10 +135,11 @@ export class GpuSim {
   }
 
   dispose(): void {
+    // compute.dispose() covers the fullscreen quad, each variable's
+    // initialValueTexture, and iterates variable.renderTargets disposing them —
+    // it does not touch variable.material, so that stays our responsibility.
+    this.compute.dispose();
     for (const v of [this.posVar, this.velVar]) {
-      for (const rt of v.renderTargets) {
-        rt.dispose();
-      }
       v.material.dispose();
     }
   }
