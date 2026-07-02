@@ -21,9 +21,10 @@ export function createPostChain(
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
-  const lensing = createLensingPass();
-  composer.addPass(lensing.pass);
-
+  // Bloom runs BEFORE the lensing pass (controller-approved deviation from the
+  // plan's stated order): lensing's shadow mask is then the final multiply, so
+  // the horizon stays black at any bloom strength. With bloom after lensing,
+  // its wide coarse-mip kernels refill the carved shadow from the bright ring.
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(innerWidth, innerHeight),
     BLOOM_STRENGTH,
@@ -31,6 +32,10 @@ export function createPostChain(
     BLOOM_THRESHOLD,
   );
   composer.addPass(bloom);
+
+  const lensing = createLensingPass();
+  composer.addPass(lensing.pass);
+
   composer.addPass(new OutputPass());
 
   return {

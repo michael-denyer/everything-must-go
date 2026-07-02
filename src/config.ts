@@ -14,8 +14,8 @@ export const CAM_FOV = 50;
 export const STAR_COUNT = 4000;
 export const STAR_SHELL: readonly [number, number] = [6, 14];
 
-export const BLOOM_STRENGTH = 0.01;
+export const BLOOM_STRENGTH = 0.08;
 export const BLOOM_RADIUS = 0.05;
-export const BLOOM_THRESHOLD = 0.9;
+export const BLOOM_THRESHOLD = 12.0;
 
 export const MAX_DT = 1 / 30;
