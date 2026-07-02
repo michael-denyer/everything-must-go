@@ -24,4 +24,14 @@ describe('projectHole', () => {
     expect(near.radiusUv).toBeGreaterThan(0);
     expect(far.radiusUv).toBeLessThan(near.radiusUv);
   });
+
+  it('pins the projected radius magnitude for the M1 composition', () => {
+    const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 100);
+    cam.position.set(0, 1.05, 4.2);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld(true);
+    const { radiusUv } = projectHole(cam, 0.22, 1600, 900);
+    expect(radiusUv).toBeGreaterThan(0.05);
+    expect(radiusUv).toBeLessThan(0.06);
+  });
 });

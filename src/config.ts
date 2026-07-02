@@ -1,5 +1,7 @@
 export const TEX_SIZE = 1024;
-export const PARTICLE_COUNT = TEX_SIZE * TEX_SIZE;
+
+export const DRAG_BASE = 0.012;
+export const CYCLE_SECONDS = 720;
 
 export const SHADOW_R = 0.22;
 export const DISK_INNER = 0.28;
