@@ -105,16 +105,13 @@ function visVivaTangentialVelocity(
 export function createComet(
   spec: { aphelion: number; perihelion: number; phase: number },
   gm0: number,
-  seed?: number,
+  seed: number,
 ): CometBody {
   const group = new THREE.Group();
-  // Inherited fix: seed shed-debris off the generator's own integer seed
-  // (cometSeeds[i], threaded in by the Task 5 conductor) rather than
-  // re-deriving one from the float phase. The float-phase derivation only
-  // remains as a fallback for when seed is undefined — main.ts still calls
-  // createComet(cs, GM) without a seed until Task 5 wires cometSeeds through;
-  // Task 5 removes this fallback once every caller passes seed.
-  const seedMaterial = seed !== undefined ? seed : Math.floor(spec.phase * 1e6) ^ 0x2545f491;
+  // Shed-debris seed comes from the generator's own integer seed
+  // (spec.cometSeeds[i], threaded in by the conductor) rather than being
+  // re-derived from the float phase.
+  const seedMaterial = seed;
 
   // ---- Head ----
   const headGeometry = new THREE.BufferGeometry();

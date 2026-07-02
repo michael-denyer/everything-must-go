@@ -20,6 +20,7 @@ export function createPostChain(
   setFlash(f: number): void;
   setCycleFade(f: number): void;
   setSize(width: number, height: number): void;
+  holeScreen(): [number, number];
 } {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = EXPOSURE;
@@ -50,12 +51,18 @@ export function createPostChain(
   composer.addPass(new OutputPass());
 
   let lastShadowR = SHADOW_R;
+  let lastCenterUv: [number, number] = [0.5, 0.5];
+  let lastWidth = innerWidth;
+  let lastHeight = innerHeight;
 
   function project(cam: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void {
     const { centerUv, radiusUv } = projectHole(cam, shadowR, width, height);
     const aspect = width / height;
     lensing.update(centerUv, radiusUv, aspect);
     recarve.update(centerUv, radiusUv, aspect);
+    lastCenterUv = centerUv;
+    lastWidth = width;
+    lastHeight = height;
   }
 
   return {
@@ -78,6 +85,9 @@ export function createPostChain(
       composer.setSize(width, height);
       bloom.setSize(width, height);
       project(camera, width, height, lastShadowR);
+    },
+    holeScreen(): [number, number] {
+      return [lastCenterUv[0] * lastWidth, lastCenterUv[1] * lastHeight];
     },
   };
 }

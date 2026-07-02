@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, SHADOW_R, TEX_SIZE } from './config';
+import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, SHADOW_R, TEX_SIZE, WELL_STRENGTH } from './config';
 import { createScene } from './scene';
 import { generateCosmos, type CosmosSpec } from './core/cosmosGen';
 import { evalCycle } from './core/cycle';
 import { generatePalette, paletteRgb } from './core/palette';
 import { GpuSim } from './sim/gpuSim';
+import { mulberry32 } from './sim/random';
 import { createDiskPoints } from './render/diskPoints';
 import { createStarfield } from './render/starfield';
 import { createPostChain } from './render/postChain';
@@ -12,6 +13,31 @@ import { createDebrisPool } from './render/debris';
 import { createBelt } from './render/belt';
 import { createPlanet, type PlanetBody } from './render/planet';
 import { createComet, type CometBody } from './render/comet';
+import { createCast, setCastCamera, type CastBody } from './render/cast';
+import { createTitleEater } from './ui/titleEater';
+import castManifest from './assets/cast/manifest.json';
+import whaleUrl from './assets/cast/whale.png';
+import pianoUrl from './assets/cast/piano.png';
+import trexUrl from './assets/cast/trex.png';
+import teacupUrl from './assets/cast/teacup.png';
+import bicycleUrl from './assets/cast/bicycle.png';
+import duckUrl from './assets/cast/duck.png';
+
+const CAST_URLS: Record<string, string> = {
+  whale: whaleUrl,
+  piano: pianoUrl,
+  trex: trexUrl,
+  teacup: teacupUrl,
+  bicycle: bicycleUrl,
+  duck: duckUrl,
+};
+
+const ROGUE_SPAWN_R = 1.7;
+// Rogue orbital rate: an angular-velocity constant (radians per cycle-progress
+// unit) applied uniformly across the spawn->merge window. Deterministic from
+// (spec, p) alone — no integration, per contract.
+const ROGUE_ANGULAR_RATE = 14;
+const WELL_IDLE_SECONDS = 1.5; // decay-to-off window after the last pointer move
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -20,6 +46,7 @@ renderer.setSize(innerWidth, innerHeight);
 
 const { scene, camera } = createScene();
 scene.background = new THREE.Color(0x05060b);
+setCastCamera(camera);
 
 const q = new URLSearchParams(location.search);
 const debug = q.has('debug');
@@ -29,6 +56,7 @@ const tFreeze = Number.parseFloat(q.get('t') ?? '');
 
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 const counterEl = document.getElementById('counter') as HTMLDivElement;
+const titleLineEl = document.getElementById('title-line') as HTMLSpanElement;
 if (debug) debugEl.style.display = 'block';
 
 let cosmosNo = 0;
@@ -38,16 +66,36 @@ let disk: ReturnType<typeof createDiskPoints>;
 let stars: ReturnType<typeof createStarfield>;
 let debris: ReturnType<typeof createDebrisPool>;
 let belt: ReturnType<typeof createBelt>;
-let bodies: Array<PlanetBody | CometBody> = [];
-// PlanetBody/CometBody share an identical structural shape (object/update/alive/
-// dispose) with no runtime discriminant field, so __emg's per-kind alive counts
-// need a side channel — set once per cosmos from the construction site below,
-// read (never mutated) when the frame loop tallies alive bodies each frame.
-let cometSet: Set<PlanetBody | CometBody> = new Set();
+let bodies: Array<PlanetBody | CometBody | CastBody> = [];
 let cycleT = 0;
 let flashDecay = 0;
+let latestPhase: string = 'serene'; // set once per frame; pointerdown reads this rather than recomputing off raw cycleT (which ignores the t= freeze)
+
+// ---- Cast feeding state: reset per cosmos in seedCosmos(). ----------------
+let castOrder: Array<{ name: string; url: string; aspect: number }> = [];
+let castNextIdx = 0;
+let castOrdinalSeed = 0;
+let castFeedRand: () => number = mulberry32(1);
+let castAutoAccum = 0; // cycle-time seconds since the last auto-feed
+
+// ---- Rogue visual state: lazily created, disposed on merge/reseed. --------
+let rogueVisual: { group: THREE.Group; dispose(): void } | null = null;
+let rogueX = 0;
+let rogueZ = 0;
+let rogueRadius = 0;
+
+// ---- Pointer well state. ----------------------------------------------
+const raycaster = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const pointerNdc = new THREE.Vector2();
+let wellActive = false;
+let wellX = 0;
+let wellZ = 0;
+let wellIdleTimer = 0; // seconds since the last pointer move
 
 const disposables: Array<{ object: THREE.Object3D; dispose(): void }> = [];
+
+let titleEater: ReturnType<typeof createTitleEater> | null = null;
 
 function seedCosmos(seed: number): void {
   cosmosNo++;
@@ -103,14 +151,151 @@ function seedCosmos(seed: number): void {
   );
 
   const planetBodies = spec.planets.map((ps) => createPlanet(ps, palette, GM));
-  const cometBodies = spec.comets.map((cs) => createComet(cs, GM));
+  const cometBodies = spec.comets.map((cs, i) => createComet(cs, GM, spec.cometSeeds[i]!));
   bodies = [...planetBodies, ...cometBodies];
-  cometSet = new Set(cometBodies);
   for (const b of bodies) {
     scene.add(b.object);
     disposables.push({ object: b.object, dispose: () => b.dispose() });
   }
+
+  // Cast manifest order shuffled by mulberry32(spec.castSeed) — a Fisher-Yates
+  // shuffle driven by the seeded stream, so the roster order is deterministic
+  // per cosmos and independent of the feed-angle stream below.
+  const shuffleRand = mulberry32(spec.castSeed);
+  const manifest = castManifest as Array<{ name: string; file: string; aspect: number }>;
+  castOrder = manifest.map((m) => ({ name: m.name, url: CAST_URLS[m.name]!, aspect: m.aspect }));
+  for (let i = castOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(shuffleRand() * (i + 1));
+    [castOrder[i], castOrder[j]] = [castOrder[j]!, castOrder[i]!];
+  }
+  castNextIdx = 0;
+  castOrdinalSeed = spec.castSeed;
+  // Entry-angle stream: seeded separately (offset from castSeed) so the feed
+  // angle sequence doesn't consume from the same stream as the shuffle above.
+  castFeedRand = mulberry32((spec.castSeed ^ 0x51ed270b) >>> 0);
+  castAutoAccum = 0;
+
+  if (rogueVisual) {
+    scene.remove(rogueVisual.group);
+    rogueVisual.dispose();
+    rogueVisual = null;
+  }
+  rogueX = 0;
+  rogueZ = 0;
+  rogueRadius = 0;
+
+  if (!titleEater) {
+    titleEater = createTitleEater(titleLineEl, [0.125, 0.208], spec.castSeed ^ 0x9e3779b9);
+  } else {
+    titleEater.reset();
+  }
 }
+
+function spawnCastMember(entryAngle: number): void {
+  if (castOrder.length === 0) return;
+  const pick = castOrder[castNextIdx % castOrder.length]!;
+  castNextIdx++;
+  const ordinal = (castOrdinalSeed + castNextIdx * 0x1000193) >>> 0;
+  const cast = createCast(pick.name, pick.url, pick.aspect, entryAngle, GM, ordinal);
+  // Render-order fix: diskPoints.ts's material runs depthTest:false, so its
+  // particles paint over anything in the same (default 0) render-order bucket
+  // regardless of actual depth once THREE's transparent-object sort places the
+  // disk after the cast mesh. debris/comet/belt already dodge this at
+  // renderOrder 1 (see debris.ts, comet.ts, belt.ts) — cast's silhouette needs
+  // the same treatment or it renders invisible against the disk (verified via
+  // pixel sampling: no darkening signature at the cast body's projected screen
+  // position without this).
+  for (const child of cast.object.children) child.renderOrder = 1;
+  bodies.push(cast);
+  scene.add(cast.object);
+  disposables.push({ object: cast.object, dispose: () => cast.dispose() });
+}
+
+function countCastAlive(): number {
+  let n = 0;
+  for (const b of bodies) if (b.kind === 'cast') n++;
+  return n;
+}
+
+function canFeed(phase: string): boolean {
+  return (phase === 'decay' || phase === 'carnage') && countCastAlive() < 2;
+}
+
+function worldAngleFromClientXY(clientX: number, clientY: number): number | null {
+  pointerNdc.x = (clientX / innerWidth) * 2 - 1;
+  pointerNdc.y = -(clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
+  return Math.atan2(hit.z, hit.x);
+}
+
+// ---- Rogue visual: small black circle mesh + thin ring sprite. ------------
+function createRogueVisual(): { group: THREE.Group; dispose(): void } {
+  const group = new THREE.Group();
+  const circleGeo = new THREE.CircleGeometry(1, 32);
+  const circleMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const circle = new THREE.Mesh(circleGeo, circleMat);
+  circle.rotation.x = -Math.PI / 2;
+  group.add(circle);
+
+  const ringGeo = new THREE.RingGeometry(1.15, 1.3, 48);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x9fb2ff,
+    transparent: true,
+    opacity: 0.55,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+
+  return {
+    group,
+    dispose(): void {
+      circleGeo.dispose();
+      circleMat.dispose();
+      ringGeo.dispose();
+      ringMat.dispose();
+    },
+  };
+}
+
+function updatePointer(clientX: number, clientY: number): void {
+  const angle = worldAngleFromClientXY(clientX, clientY);
+  if (angle === null) return;
+  pointerNdc.x = (clientX / innerWidth) * 2 - 1;
+  pointerNdc.y = -(clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
+  wellX = hit.x;
+  wellZ = hit.z;
+  wellActive = true;
+  wellIdleTimer = 0;
+}
+
+function isUiElement(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('a, button, #debug, #counter') !== null;
+}
+
+function onPointerMove(e: PointerEvent): void {
+  updatePointer(e.clientX, e.clientY);
+}
+
+function onPointerDown(e: PointerEvent): void {
+  if (isUiElement(e.target)) return;
+  updatePointer(e.clientX, e.clientY);
+  const angle = worldAngleFromClientXY(e.clientX, e.clientY);
+  if (angle === null) return;
+  if (canFeed(latestPhase)) {
+    spawnCastMember(angle);
+  }
+}
+
+addEventListener('pointermove', onPointerMove);
+addEventListener('pointerdown', onPointerDown);
 
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
 const post = createPostChain(renderer, scene, camera);
@@ -141,6 +326,60 @@ function frame(now: number): void {
     ? Math.min(Math.max(tFreeze, 0), 1) * spec.cycleSeconds
     : cycleT;
   const p = evalCycle(spec, effT);
+  latestPhase = p.phase;
+
+  // Pointer well: decays to off WELL_IDLE_SECONDS after the last move.
+  if (wellActive) {
+    wellIdleTimer += dt;
+    if (wellIdleTimer >= WELL_IDLE_SECONDS) wellActive = false;
+  }
+  const wellStrength = wellActive ? WELL_STRENGTH : 0;
+  sim.setWell(wellX, 0, wellZ, wellStrength);
+
+  // Feeding: auto-feed accumulator, gated by phase + cast-alive same as the
+  // pointerdown path.
+  if (canFeed(p.phase)) {
+    castAutoAccum += dt;
+    if (castAutoAccum >= spec.castCadence) {
+      castAutoAccum = 0;
+      const angle = castFeedRand() * Math.PI * 2;
+      spawnCastMember(angle);
+    }
+  } else {
+    castAutoAccum = 0;
+  }
+
+  // Rogue visual: deterministic inward drift from spawn radius to the hole,
+  // arriving at merge time. No integration — position is a pure function of
+  // (spec, p.progress).
+  if (p.rogueActive) {
+    if (!rogueVisual) {
+      rogueVisual = createRogueVisual();
+      scene.add(rogueVisual.group);
+    }
+    // Deterministic inward drift, no integration: radius interpolates spawn
+    // (1.7) -> holeR by normalized progress through the [spawnP, mergeP]
+    // window; angle advances at a fixed local rate over that same window.
+    const { spawnP, mergeP } = spec.rogue;
+    const t = (p.progress - spawnP) / (mergeP - spawnP);
+    const radius = ROGUE_SPAWN_R + (p.holeR - ROGUE_SPAWN_R) * t;
+    const angle = (spawnP + t * (mergeP - spawnP)) * ROGUE_ANGULAR_RATE * Math.PI * 2;
+    rogueX = radius * Math.cos(angle);
+    rogueZ = radius * Math.sin(angle);
+    rogueRadius = 0.45 * p.holeR;
+    rogueVisual.group.position.set(rogueX, 0, rogueZ);
+    rogueVisual.group.scale.setScalar(Math.max(0.04, rogueRadius));
+    sim.setRogue(rogueX, 0, rogueZ, rogueRadius);
+  } else {
+    rogueRadius = 0;
+    sim.setRogue(0, 0, 0, 0);
+    if (p.rogueMerged && rogueVisual) {
+      flashDecay = Math.max(flashDecay, 0.5);
+      scene.remove(rogueVisual.group);
+      rogueVisual.dispose();
+      rogueVisual = null;
+    }
+  }
 
   // Contract with gpuSim.ts SIM_COMMON respawn margins: effective cull radius here
   // is holeR*1.143 (1.27 * 0.9 needsRespawn threshold); cosmosGen keeps diskInner0
@@ -167,7 +406,14 @@ function frame(now: number): void {
     return false;
   });
   belt.setParams({ progress: p.progress, time: cycleT });
-  debris.update(dt, p.gm, p.drag * 2, p.holeR);
+  debris.update(
+    dt,
+    p.gm,
+    p.drag * 2,
+    p.holeR,
+    { x: wellX, y: 0, z: wellZ, strength: wellStrength },
+    { x: rogueX, y: 0, z: rogueZ, radius: rogueRadius },
+  );
 
   camera.position.set(CAM_POS[0] * p.camDist, CAM_POS[1] * p.camDist, CAM_POS[2] * p.camDist);
   camera.lookAt(0, 0, 0);
@@ -187,10 +433,18 @@ function frame(now: number): void {
   post.lensing.setFade(p.fade * p.fade);
   post.composer.render();
 
+  titleEater?.update(dt / spec.cycleSeconds, post.holeScreen());
+
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;
+  let alivePlanets = 0;
   let aliveComets = 0;
-  for (const b of bodies) if (cometSet.has(b)) aliveComets++;
-  const aliveCounts = { planets: bodies.length - aliveComets, comets: aliveComets };
+  let aliveCast = 0;
+  for (const b of bodies) {
+    if (b.kind === 'planet') alivePlanets++;
+    else if (b.kind === 'comet') aliveComets++;
+    else if (b.kind === 'cast') aliveCast++;
+  }
+  const aliveCounts = { planets: alivePlanets, comets: aliveComets, cast: aliveCast };
   (window as unknown as { __emg: object }).__emg = { spec, params: p, alive: aliveCounts };
 
   if (debug) {
