@@ -221,9 +221,17 @@ export function createCast(
       // (planet.ts precedent). Applied as local scale along the screen-
       // projected fall direction so the quad stretches toward the hole as it
       // is seen on screen, not in its own unrotated local axes.
+      //
+      // Convention: under the parent group's billboard quaternion, a child
+      // rotation.z of θ maps local +X to cosθ·cameraRight + sinθ·cameraUp,
+      // i.e. screen-plane (cosθ, sinθ). So rotation.z = atan2 of screenDir
+      // aligns local +X — the stretched axis — with the projected fall
+      // direction (probe-verified dot(localX, screenDir) = 1.0). Visually
+      // unverifiable until Task 5 wires call sites: flag for the Task 5
+      // capture check — a stretching cast body must elongate TOWARD the hole.
       maxStretch = Math.max(maxStretch, stretchFactor(r, holeR));
       if (maxStretch > 0) {
-        mesh.rotation.z = Math.atan2(screenDir.y, screenDir.x) - Math.PI / 2;
+        mesh.rotation.z = Math.atan2(screenDir.y, screenDir.x);
         mesh.scale.set(1 + 2.4 * maxStretch, Math.max(0.55, 1 - 0.3 * maxStretch), 1);
         (material.uniforms.uStretch!.value as number) = maxStretch;
       }
