@@ -64,11 +64,27 @@ test('money shot renders: webgl2, no errors, shadow + ring pixels', async ({ pag
 
   const whole = regionStats(png, cx, cy, Math.floor(png.height / 2) - 2);
   expect(whole.mean).toBeGreaterThan(2);
+  // Guards against the bloom-washout failure mode from Task 7 tuning (whole frame
+  // flooding white): a healthy frame measures ~66 here, a washout reads 200+.
+  expect(whole.mean).toBeLessThan(110);
 });
 
 test('sustains at least 30 fps locally', async ({ page }) => {
   test.skip(!!process.env.CI, 'headless CI GPUs are not representative');
   await page.goto('/');
+  const renderer = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2');
+    if (!gl) return 'no webgl2 context';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    return dbg
+      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getParameter(gl.RENDERER));
+  });
+  test.skip(
+    /swiftshader|software|llvmpipe/i.test(renderer),
+    `software rasterizer (${renderer}): fps is not representative of a real GPU`,
+  );
   await page.waitForTimeout(2000);
   const fps = await page.evaluate(
     () =>
