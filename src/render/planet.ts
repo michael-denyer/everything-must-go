@@ -296,7 +296,11 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
     });
     ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
     ringMesh.rotation.x = 0.35; // fixed tilt
-    ringMesh.rotation.z = ringRand() * Math.PI * 2; // seeded yaw so ringed planets differ
+    // Seeded on Y, not Z: the ring lies flat in local XY, so a Z roll spins it
+    // around its own normal — invisible on a rotationally symmetric texture.
+    // Y reorients the tilt axis itself before the fixed X tilt is composed,
+    // so ringed planets actually look different from each other.
+    ringMesh.rotation.y = ringRand() * Math.PI * 2; // seeded yaw so ringed planets differ
     group.add(ringMesh);
   }
 
@@ -522,7 +526,11 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
       // stays (1,1,1) until the ratchet first engages, then only ever deepens.
       maxStretch = Math.max(maxStretch, stretchFactor(r, holeR));
       if (maxStretch > 0) {
-        planetMesh.rotation.y = Math.atan2(orbit.z, orbit.x); // radial axis = local X
+        // Negated: three.js rotation.y maps local +X to world (cos, 0, -sin),
+        // so unnegated atan2(z, x) aligns local X with the radial direction
+        // reflected. Verified |dot(localX, radial)| = 1.0 at all sampled
+        // positions with the negation.
+        planetMesh.rotation.y = -Math.atan2(orbit.z, orbit.x); // radial axis = local X
         planetMesh.scale.set(1 + 2.4 * maxStretch, 1 - 0.3 * maxStretch, 1 - 0.3 * maxStretch);
 
         stretchDebrisCarry += maxStretch * STRETCH_DEBRIS_PER_SEC * dt;
@@ -550,6 +558,16 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
       }
 
       if (ratio <= BURST) {
+        // The crack takes the stragglers: any moon that's still alive when the
+        // planet bursts (freed but not yet consumed — burst fires below
+        // MOON_UNBIND so bound moons can't reach here, but guard anyway) gets
+        // its own 6-debris puff via the existing consume path rather than
+        // silently disappearing.
+        moons.forEach((m, index) => {
+          if (m.consumed) return;
+          if (m.bound) unbindMoon(m); // populate m.state before consuming (defensive; see above)
+          consumeMoon(m, index, spawnDebris);
+        });
         burst(spawnDebris);
         alive = false;
         body.alive = false;

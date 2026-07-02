@@ -68,28 +68,38 @@ function seedCosmos(seed: number): void {
     d.dispose();
   }
   disposables.length = 0;
-  disk = createDiskPoints(TEX_SIZE);
-  stars = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
-  scene.add(stars.points);
-  scene.add(disk.points);
+  // Captured into function-local consts so each closure below is bound to
+  // *this* cosmos's instance, not whatever the module-level `let` holds when
+  // the sweep eventually runs. Bodies already do this via their loop-local
+  // `b` (see the disposables.push in the loop further down) — this removes
+  // the same ordering dependency from disk/stars/debris/belt, which used to
+  // be correct only because the sweep always ran before reassignment.
+  const dp = createDiskPoints(TEX_SIZE);
+  disk = dp;
+  const st = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
+  stars = st;
+  scene.add(st.points);
+  scene.add(dp.points);
   disposables.push(
-    { object: disk.points, dispose: () => { disk.points.geometry.dispose(); (disk.points.material as THREE.Material).dispose(); } },
-    { object: stars.points, dispose: () => { stars.points.geometry.dispose(); (stars.points.material as THREE.Material).dispose(); } },
+    { object: dp.points, dispose: () => { dp.points.geometry.dispose(); (dp.points.material as THREE.Material).dispose(); } },
+    { object: st.points, dispose: () => { st.points.geometry.dispose(); (st.points.material as THREE.Material).dispose(); } },
   );
 
   const palette = generatePalette(spec.paletteSeed);
-  debris = createDebrisPool();
-  belt = createBelt({
+  const de = createDebrisPool();
+  debris = de;
+  const bl = createBelt({
     count: spec.beltCount,
     inner: spec.beltInner,
     rgb: paletteRgb(palette, spec.beltHueIdx, 0.5, 0.55),
     seed: spec.seed + 7,
   });
-  scene.add(debris.points);
-  scene.add(belt.points);
+  belt = bl;
+  scene.add(de.points);
+  scene.add(bl.points);
   disposables.push(
-    { object: debris.points, dispose: () => debris.dispose() },
-    { object: belt.points, dispose: () => belt.dispose() },
+    { object: de.points, dispose: () => de.dispose() },
+    { object: bl.points, dispose: () => bl.dispose() },
   );
 
   const planetBodies = spec.planets.map((ps) => createPlanet(ps, palette, GM));
@@ -149,6 +159,10 @@ function frame(now: number): void {
   bodies = bodies.filter((b) => {
     if (b.alive) return true;
     scene.remove(b.object);
+    // Pruned bodies stay in `disposables` (pushed at construction, swept only
+    // on the next seedCosmos()) so dispose() runs again there. Safe only
+    // because dispose() is idempotent by design — guards live in planet.ts
+    // and comet.ts.
     b.dispose();
     return false;
   });

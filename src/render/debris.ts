@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import { CONSUME } from '../core/tidal';
+
+// Debris that drifts past this radius has left the visible cosmos; matches
+// no other module's constant, this is purely a cull-distance budget.
+const ESCAPE_R = 4;
 
 const VERT = /* glsl */ `
   attribute vec3 aColor;
@@ -71,6 +76,7 @@ export function createDebrisPool(capacity = 8192): {
       colors[i * 3] = r;
       colors[i * 3 + 1] = g;
       colors[i * 3 + 2] = b;
+      colAttr.needsUpdate = true; // colors only ever change here, not in update()
     },
     update(dt, gm, drag, holeR): void {
       const dragMul = 1 - drag * dt;
@@ -80,7 +86,7 @@ export function createDebrisPool(capacity = 8192): {
         const x = positions[o]!, y = positions[o + 1]!, z = positions[o + 2]!;
         const r2 = x * x + y * y + z * z;
         const r = Math.sqrt(r2);
-        if (r < holeR * 1.05 || r > 4) {
+        if (r < holeR * CONSUME || r > ESCAPE_R) {
           alive[i] = 0;
           positions[o] = 99;
           positions[o + 1] = 99;
@@ -96,7 +102,6 @@ export function createDebrisPool(capacity = 8192): {
         positions[o + 2] = z + velocities[o + 2]! * dt;
       }
       posAttr.needsUpdate = true;
-      colAttr.needsUpdate = true;
     },
     dispose(): void {
       geometry.dispose();

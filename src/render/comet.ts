@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { CONSUME } from '../core/tidal';
 import { mulberry32 } from '../sim/random';
+import type { Rgb } from '../core/palette';
 
 // Same Body shape as PlanetBody (src/render/planet.ts): object/update/alive/dispose.
 // Not imported from planet.ts — comets have no ring/moon lifecycle, so this is
@@ -47,7 +48,7 @@ const TRAIL_LEN = 24;
 const HEAD_SIZE_PX = 2.5;
 const SHED_PERIOD = 0.25; // seconds between shed debris while r < SHED_R
 const SHED_R = 1.1;
-const SHED_TINT: [number, number, number] = [0.78, 0.86, 1.0]; // pale-blue
+const SHED_TINT: Rgb = [0.78, 0.86, 1.0]; // pale-blue
 
 // ---- Head shader: a single additive point, bright, small ------------------
 
