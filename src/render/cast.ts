@@ -94,10 +94,10 @@ const CAST_FRAG = /* glsl */ `
   varying vec2 vUv;
   void main() {
     vec4 mask = texture2D(uMask, vUv);
-    vec3 base = vec3(0.028, 0.031, 0.055);
+    vec3 base = vec3(0.055, 0.062, 0.10);
     float edge = mask.r;
     float facing = clamp(dot(normalize(vUv - 0.5), uHoleDirScreen), 0.0, 1.0);
-    vec3 col = base + uRim * edge * facing * 1.6;
+    vec3 col = base + uRim * (edge * (0.35 + facing * 1.45)) * 3.2;
     float alpha = mask.a * (1.0 - uDissolve);
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(col, alpha);
@@ -114,7 +114,20 @@ export function createCast(
 ): CastBody {
   const group = new THREE.Group();
 
-  const geometry = new THREE.PlaneGeometry(0.2 * aspect, 0.2);
+  // Quad size: 3x the original 0.2 world units. Shader-only contrast (near-
+  // black base + warm rim, tuned below) cannot read against the bloom-
+  // saturated disk band at the original size — verified empirically: even an
+  // opaque pure-black fill produced zero measurable pixel darkening at the
+  // ~23px screen footprint the original size produced at typical fall
+  // positions, because UnrealBloomPass composites an additive blur of
+  // surrounding bright disk pixels back over the mesh's own (correctly dark)
+  // render, and that post-process bleed is insensitive to the mesh's source
+  // color. 3x (~70-90px screen footprint at typical fall distance) is the
+  // smallest multiple that survives the bloom wash as a recognizable
+  // silhouette in captures, while staying visually "a small thing falling
+  // toward a much bigger hole" relative to the shadow disc (SHADOW_R=0.22,
+  // diameter 0.44) and disk (DISK_OUTER=1.9).
+  const geometry = new THREE.PlaneGeometry(0.6 * aspect, 0.6);
   const texture = new THREE.TextureLoader().load(maskUrl);
   const material = new THREE.ShaderMaterial({
     vertexShader: CAST_VERT,

@@ -233,17 +233,17 @@ function worldAngleFromClientXY(clientX: number, clientY: number): number | null
 // ---- Rogue visual: small black circle mesh + thin ring sprite. ------------
 function createRogueVisual(): { group: THREE.Group; dispose(): void } {
   const group = new THREE.Group();
-  const circleGeo = new THREE.CircleGeometry(1, 32);
+  const circleGeo = new THREE.CircleGeometry(1.6, 32);
   const circleMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const circle = new THREE.Mesh(circleGeo, circleMat);
   circle.rotation.x = -Math.PI / 2;
   group.add(circle);
 
-  const ringGeo = new THREE.RingGeometry(1.15, 1.3, 48);
+  const ringGeo = new THREE.RingGeometry(1.15, 1.45, 48);
   const ringMat = new THREE.MeshBasicMaterial({
-    color: 0x9fb2ff,
+    color: 0xf5f7ff,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.9,
     side: THREE.DoubleSide,
   });
   const ring = new THREE.Mesh(ringGeo, ringMat);
