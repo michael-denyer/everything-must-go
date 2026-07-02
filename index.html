@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Everything Must Go</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05060b; overflow: hidden; }
+    #app { display: block; width: 100vw; height: 100vh; }
+    #title {
+      position: fixed; top: 20px; left: 22px; color: rgba(238, 242, 252, .85);
+      font-family: system-ui, sans-serif; font-size: 13px; letter-spacing: 4px;
+      font-weight: 500; user-select: none; pointer-events: none;
+    }
+    #title small {
+      display: block; margin-top: 6px; font-size: 11px; letter-spacing: 1px;
+      font-weight: 400; color: rgba(168, 178, 205, .62);
+    }
+    #debug {
+      position: fixed; bottom: 14px; right: 16px; color: rgba(168, 178, 205, .8);
+      font-family: ui-monospace, monospace; font-size: 12px; display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="app"></canvas>
+  <div id="title">EVERYTHING MUST GO<small>a spinning black hole is closing this cosmos</small></div>
+  <div id="debug"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
