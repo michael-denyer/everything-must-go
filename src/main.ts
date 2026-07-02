@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, TEX_SIZE } from './config';
+import { createDiskPoints } from './render/diskPoints';
+import { createStarfield } from './render/starfield';
 import { createScene } from './scene';
 import { GpuSim } from './sim/gpuSim';
 
@@ -20,6 +22,10 @@ const sim = new GpuSim(renderer, {
   seed: SEED,
 });
 
+const disk = createDiskPoints(TEX_SIZE);
+scene.add(disk.points);
+scene.add(createStarfield());
+
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 const debug = new URLSearchParams(location.search).has('debug');
 if (debug) debugEl.style.display = 'block';
@@ -39,6 +45,7 @@ function frame(now: number): void {
   const dt = Math.min(MAX_DT, (now - last) / 1000) || 1 / 60;
   last = now;
   sim.step(dt);
+  disk.update(sim);
   if (debug && !probed) {
     probed = true;
     const probe = sim.debugSampleRadii();
