@@ -77,6 +77,11 @@ describe('evalCycle', () => {
     const before = atP(sp.rogue.mergeP - 0.005).holeR;
     const after = atP(sp.rogue.mergeP + 0.03).holeR;
     expect(after / before).toBeGreaterThan(1.15);
+    // The merger boost rides into gravity through the area law (gm ∝ holeR²):
+    // swallowed mass pulls harder. Pin the ripple so it can't silently vanish.
+    const gmBefore = atP(sp.rogue.mergeP - 0.005).gm;
+    const gmAfter = atP(sp.rogue.mergeP + 0.03).gm;
+    expect(gmAfter / gmBefore).toBeGreaterThan(1.3);
   });
 
   it('keeps rogue fields inert for rogue-free cosmoses', () => {
