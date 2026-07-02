@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { MAX_DT } from './config';
+import { DISK_INNER, DISK_OUTER, DISK_THICKNESS, GM, MAX_DT, SEED, TEX_SIZE } from './config';
 import { createScene } from './scene';
+import { GpuSim } from './sim/gpuSim';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -10,11 +11,21 @@ renderer.setSize(innerWidth, innerHeight);
 const { scene, camera } = createScene();
 scene.background = new THREE.Color(0x05060b);
 
+const sim = new GpuSim(renderer, {
+  texSize: TEX_SIZE,
+  innerR: DISK_INNER,
+  outerR: DISK_OUTER,
+  gm: GM,
+  thickness: DISK_THICKNESS,
+  seed: SEED,
+});
+
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 const debug = new URLSearchParams(location.search).has('debug');
 if (debug) debugEl.style.display = 'block';
 let frames = 0;
 let fpsWindowStart = performance.now();
+let probed = false;
 
 function onResize(): void {
   camera.aspect = innerWidth / innerHeight;
@@ -27,7 +38,14 @@ let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(MAX_DT, (now - last) / 1000) || 1 / 60;
   last = now;
-  void dt;
+  sim.step(dt);
+  if (debug && !probed) {
+    probed = true;
+    const probe = sim.debugSampleRadii();
+    console.log(
+      `sim ok: finite=${probe.finite} r=[${probe.min.toFixed(2)}, ${probe.max.toFixed(2)}]`,
+    );
+  }
   renderer.render(scene, camera);
   if (debug) {
     frames++;
