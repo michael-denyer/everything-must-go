@@ -490,24 +490,23 @@ function regionMean(png: PNG, x0: number, y0: number, x1: number, y1: number): n
   return sum / n;
 }
 
-function bottomCornersMean(png: PNG): number {
+function nebulaRegionMean(png: PNG): number {
+  // Left band (x 0-0.25, y 0.2-0.8): where seed 1's nebulae project at t=0.05,
+  // clear of the central disk AND of its late-cycle halo (the halo grows but
+  // never reaches this far left). Measured seed-1: early ~6.8, late ~0.34 —
+  // a ~20x dimming, so this cleanly isolates the deep-sky fade from the disk.
   const w = png.width;
   const h = png.height;
-  const bandY0 = Math.floor(h * 0.65);
-  const leftX1 = Math.floor(w * 0.28);
-  const rightX0 = Math.floor(w * 0.72);
-  const left = regionMean(png, 0, bandY0, leftX1, h);
-  const right = regionMean(png, rightX0, bandY0, w, h);
-  return (left + right) / 2;
+  return regionMean(png, 0, Math.floor(h * 0.2), Math.floor(w * 0.25), Math.floor(h * 0.8));
 }
 
-test('the deep sky dims with the cosmos (off-disk nebula corners fade by late carnage)', async ({ page }) => {
+test('the deep sky dims with the cosmos (off-disk nebula region fades by late carnage)', async ({ page }) => {
   test.setTimeout(120_000);
 
   await page.goto('/?seed=1&t=0.05');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(3000);
-  const earlyMean = bottomCornersMean(PNG.sync.read(await page.screenshot()));
+  const earlyMean = nebulaRegionMean(PNG.sync.read(await page.screenshot()));
 
   await page.goto('/?seed=1&t=0.95');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
@@ -516,9 +515,43 @@ test('the deep sky dims with the cosmos (off-disk nebula corners fade by late ca
   while (Date.now() < deadline) {
     await page.waitForTimeout(3000);
     const png = PNG.sync.read(await page.screenshot());
-    lateMean = bottomCornersMean(png);
+    lateMean = nebulaRegionMean(png);
     if (frameMean(png) < 8) break;
   }
 
-  expect(earlyMean).toBeGreaterThan(lateMean * 3);
+  // Non-vacuous: the deep sky is actually present in this region early (would be
+  // ~0 if the sky rendered invisible)...
+  expect(earlyMean).toBeGreaterThan(3);
+  // ...and clearly dimmed toward black by the darkness phase (real ratio ~20x).
+  expect(earlyMean).toBeGreaterThan(lateMean * 4);
+});
+
+test('nebula wisp-drain emits debris in the drain window', async ({ page }) => {
+  test.setTimeout(120_000);
+  // The conductor drains nebulae into the disk as debris only while progress is
+  // in [0.30, 0.85]. Compare the debris pool's alive count just before the
+  // window (t=0.15, drain off) with mid-window (t=0.55, drain at full rate).
+  // Not a pure wisp isolation — comet/cast shed debris share the pool — but at
+  // these frozen early freezes the drain is the dominant continuous emitter, so
+  // a clear increase confirms it is actually spawning.
+  const settledDebris = async (t: string): Promise<number> => {
+    await page.goto(`/?seed=7&t=${t}`);
+    await page.waitForFunction(
+      () => (window as unknown as { __emg?: { debrisAlive?: number } }).__emg?.debrisAlive !== undefined,
+    );
+    let count = 0;
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(1500); // let debris reach steady state at the frozen progress
+      count = await page.evaluate(
+        () => (window as unknown as { __emg: { debrisAlive: number } }).__emg.debrisAlive,
+      );
+    }
+    return count;
+  };
+
+  const preWindow = await settledDebris('0.15');
+  const midWindow = await settledDebris('0.55');
+  // Drain window carries clearly more live debris than the pre-window frame.
+  expect(midWindow).toBeGreaterThan(preWindow);
+  expect(midWindow).toBeGreaterThan(10);
 });

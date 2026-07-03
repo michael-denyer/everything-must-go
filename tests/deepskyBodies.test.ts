@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { generateCosmos } from '../src/core/cosmosGen';
 import { evalCycle } from '../src/core/cycle';
@@ -6,6 +7,7 @@ import { CONSUME } from '../src/core/tidal';
 import { GM, MAX_DT } from '../src/config';
 import { createCluster } from '../src/render/cluster';
 import { createPulsar } from '../src/render/pulsar';
+import { createShootingStars } from '../src/render/shootingStars';
 
 // Drive a Body through a full cycle exactly as main.ts's conductor does: step
 // sim-time by dt, evalCycle at that time, call update(dt, gm, drag, holeR,
@@ -120,5 +122,71 @@ describe('pulsar plunge', () => {
     // Early on it should still be near its spawn orbit (0.7-0.9), not already
     // decayed toward the hole as the pre-fix version was.
     expect(radiusEarly).toBeGreaterThan(spec.pulsar.orbitR * 0.9);
+  });
+});
+
+describe('shooting stars', () => {
+  const streakOf = (ss: { object: THREE.Object3D }): { mesh: THREE.Mesh; mat: THREE.ShaderMaterial } => {
+    const mesh = ss.object.children[0] as THREE.Mesh;
+    return { mesh, mat: mesh.material as THREE.ShaderMaterial };
+  };
+
+  it('fires within the seeded 10-18s interval, sweeps, then re-arms', () => {
+    const ss = createShootingStars(123);
+    const { mesh, mat } = streakOf(ss);
+    expect(mesh.visible).toBe(false); // starts idle, counting down
+
+    const dt = MAX_DT;
+    let t = 0;
+    let firedAt: number | null = null;
+    while (t < 20 && firedAt === null) {
+      ss.update(dt);
+      t += dt;
+      if (mesh.visible) firedAt = t;
+    }
+    // delay = 10 + rand()*8, so the first streak activates in [10, 18] sim-sec.
+    expect(firedAt).not.toBeNull();
+    expect(firedAt!).toBeGreaterThanOrEqual(10 - dt);
+    expect(firedAt!).toBeLessThanOrEqual(18 + dt);
+
+    // It sweeps (uAlpha rises) then deactivates and re-arms within ~0.7s.
+    let sawAlpha = false;
+    let reArmed = false;
+    let t2 = 0;
+    while (t2 < 1.0) {
+      ss.update(dt);
+      t2 += dt;
+      if ((mat.uniforms.uAlpha!.value as number) > 0.3) sawAlpha = true;
+      if (!mesh.visible) reArmed = true;
+    }
+    expect(sawAlpha).toBe(true);
+    expect(reArmed).toBe(true);
+  });
+
+  it('is deterministic: the same seed fires at the same time', () => {
+    const fireTime = (seed: number): number | null => {
+      const ss = createShootingStars(seed);
+      const { mesh } = streakOf(ss);
+      const dt = MAX_DT;
+      let t = 0;
+      while (t < 20) {
+        ss.update(dt);
+        t += dt;
+        if (mesh.visible) return t;
+      }
+      return null;
+    };
+    expect(fireTime(77)).toBe(fireTime(77));
+  });
+
+  it('dims to nothing when the cosmos fade reaches zero', () => {
+    const ss = createShootingStars(5);
+    const { mat } = streakOf(ss);
+    // uFade is the darkness-phase fade the conductor drives; at 0 the additive
+    // white streak contributes nothing, so meteors can't flash through darkness.
+    ss.setFade(0);
+    expect(mat.uniforms.uFade!.value).toBe(0);
+    ss.setFade(0.5);
+    expect(mat.uniforms.uFade!.value).toBe(0.5);
   });
 });

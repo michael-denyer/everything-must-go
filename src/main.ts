@@ -402,6 +402,7 @@ function frame(now: number): void {
   // the darkness gate.
   const darkFade = p.fade * p.fade;
   sky.setParams({ fade: darkFade, progress: p.progress });
+  shootingStars.setFade(darkFade);
   shootingStars.update(dt);
 
   // Nebula wisp drain: while progress is inside the window, each nebula
@@ -578,7 +579,12 @@ function frame(now: number): void {
     clusters: aliveClusters,
     pulsar: alivePulsar,
   };
-  (window as unknown as { __emg: object }).__emg = { spec, params: p, alive: aliveCounts };
+  (window as unknown as { __emg: object }).__emg = {
+    spec,
+    params: p,
+    alive: aliveCounts,
+    debrisAlive: debris.aliveCount(),
+  };
 
   if (debug) {
     frames++;

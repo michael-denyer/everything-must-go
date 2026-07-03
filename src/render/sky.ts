@@ -286,6 +286,14 @@ export function createSky(
   palette: Palette,
   camera: THREE.PerspectiveCamera,
 ): { object: THREE.Object3D; setParams(p: { fade: number; progress: number }): void; dispose(): void } {
+  // Force the camera's world matrices current before projecting nebula anchors.
+  // On the FIRST cosmos this runs at module load, before any render or rAF, so
+  // createScene's camera.lookAt has set the quaternion but NOT yet folded it
+  // into matrixWorld/matrixWorldInverse — projectToCanvas would otherwise bake
+  // every nebula as if the camera looked straight down -Z (~24% of frame height
+  // off from where its 3D anchor and its draining wisps actually render).
+  // Harmless on later reseeds (matrices already current). (Final-review finding.)
+  camera.updateMatrixWorld();
   const texture = bakeSkyTexture(spec, palette, camera);
 
   // Frustum-fit the plane: size it to (over-)fill the camera's view at the

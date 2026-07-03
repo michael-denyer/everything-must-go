@@ -22,13 +22,18 @@ const STREAK_VERT = /* glsl */ `
 
 const STREAK_FRAG = /* glsl */ `
   uniform float uAlpha;
+  uniform float uFade;
   varying vec2 vUv;
   void main() {
     // Fade along the streak's length (vUv.x: 0 = tail, 1 = head) and across
     // its width (vUv.y) so it reads as a bright head with a dissolving tail.
+    // uFade is the cosmos-death fade (squared, driven by the conductor) so
+    // meteors go dark through the darkness phase like the rest of the deep sky
+    // — additive white streaks would otherwise flash across a frame meant to be
+    // black.
     float along = smoothstep(0.0, 1.0, vUv.x);
     float across = 1.0 - abs(vUv.y - 0.5) * 2.0;
-    float a = along * across * uAlpha;
+    float a = along * across * uAlpha * uFade;
     gl_FragColor = vec4(vec3(1.0, 0.98, 0.92) * a, a);
   }
 `;
@@ -68,6 +73,7 @@ function drawOccurrence(rand: () => number): {
 export function createShootingStars(seed: number): {
   object: THREE.Object3D;
   update(dtSeconds: number): void;
+  setFade(fade: number): void;
   dispose(): void;
 } {
   const rand = mulberry32(seed);
@@ -76,7 +82,7 @@ export function createShootingStars(seed: number): {
   const material = new THREE.ShaderMaterial({
     vertexShader: STREAK_VERT,
     fragmentShader: STREAK_FRAG,
-    uniforms: { uAlpha: { value: 0 } },
+    uniforms: { uAlpha: { value: 0 }, uFade: { value: 1 } },
     transparent: true,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide, // same invisibility guard as pulsar.ts's beams: never let orientation cull it
@@ -155,6 +161,9 @@ export function createShootingStars(seed: number): {
       material.uniforms.uAlpha!.value = Math.min(fadeIn, fadeOut);
 
       if (t >= 1) deactivate();
+    },
+    setFade(fade: number): void {
+      material.uniforms.uFade!.value = fade;
     },
     dispose(): void {
       if (disposed) return;
