@@ -1,7 +1,7 @@
 // src/render/diskPoints.ts
 import * as THREE from 'three';
 import { blackbodyGlsl } from '../color/blackbody';
-import { DISK_INNER, DISK_OUTER } from '../config';
+import { BEAMING_EXP, DISK_INNER, DISK_INTENSITY, DISK_OUTER, LIGHT_SPEED } from '../config';
 import type { GpuSim } from '../sim/gpuSim';
 
 const VERT = /* glsl */ `
@@ -10,8 +10,11 @@ const VERT = /* glsl */ `
   uniform float uPixelRatio;
   uniform float uHeatInner;
   uniform float uHeatOuter;
+  uniform float uLightSpeed;
+  uniform float uBeamExp;
   varying float vHeat;
-  varying float vDoppler;
+  varying float vBeam;
+  varying float vGrav;
 
   void main() {
     vec3 pos = texture2D(uPositions, uv).xyz;
@@ -19,7 +22,8 @@ const VERT = /* glsl */ `
       gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
       gl_PointSize = 0.0;
       vHeat = 0.0;
-      vDoppler = 0.0;
+      vBeam = 0.0;
+      vGrav = 0.0;
       return;
     }
     vec3 vel = texture2D(uVelocities, uv).xyz;
@@ -27,7 +31,21 @@ const VERT = /* glsl */ `
     vHeat = pow(clamp(1.0 - (r - uHeatInner) / max(uHeatOuter - uHeatInner, 1e-4), 0.0, 1.0), 1.6);
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     vec3 velView = (modelViewMatrix * vec4(vel, 0.0)).xyz;
-    vDoppler = 1.0 + 0.55 * clamp(velView.x / max(length(velView), 1e-4), -1.0, 1.0);
+    // Relativistic beaming: β is the line-of-sight velocity fraction (view
+    // space looks down -z, so velView.z > 0 approaches the camera). δ³ is the
+    // bolometric beaming law — the approaching side of the disk brightens
+    // several-fold, the receding side goes dark (the one-sided crescent).
+    float beta = clamp(velView.z / uLightSpeed, -0.9, 0.9);
+    vBeam = pow(1.0 / (1.0 - beta), uBeamExp);
+    // Gravitational redshift: √(1 - rs/r). rs is derived from what the sprites
+    // already receive — uHeatInner is the sim inner radius = holeR·1.27, and
+    // the photon-capture shadow (≈ holeR) sits at 2.6·rs, so
+    // rs = uHeatInner / (1.27 · 2.6) ≈ uHeatInner · 0.303. Applied to the heat
+    // (cooler → redder blackbody) and again to the emissive in the fragment
+    // (dimmer), so the inner edge reddens and dies toward the horizon.
+    float rs = uHeatInner * 0.303;
+    vGrav = sqrt(clamp(1.0 - rs / max(r, 1e-4), 0.0, 1.0));
+    vHeat *= vGrav;
     gl_PointSize = clamp((2.0 + vHeat * 6.0) * uPixelRatio * (2.0 / -mvPosition.z), 1.0, 16.0);
     gl_Position = projectionMatrix * mvPosition;
   }
@@ -35,14 +53,16 @@ const VERT = /* glsl */ `
 
 const FRAG = /* glsl */ `
   varying float vHeat;
-  varying float vDoppler;
+  varying float vBeam;
+  varying float vGrav;
   uniform float uFade;
+  uniform float uIntensity;
   ${'$'}{blackbody}
 
   void main() {
     float d = length(gl_PointCoord - 0.5);
     float alpha = smoothstep(0.5, 0.08, d);
-    vec3 col = blackbody(vHeat) * (0.35 + vHeat * 1.45) * vDoppler * uFade;
+    vec3 col = blackbody(vHeat) * (0.35 + vHeat * 1.45) * vBeam * vGrav * uFade * uIntensity;
     gl_FragColor = vec4(col * alpha, 1.0);
   }
 `;
@@ -73,6 +93,9 @@ export function createDiskPoints(texSize: number): {
       uHeatInner: { value: DISK_INNER },
       uHeatOuter: { value: DISK_OUTER },
       uFade: { value: 1 },
+      uIntensity: { value: DISK_INTENSITY },
+      uLightSpeed: { value: LIGHT_SPEED },
+      uBeamExp: { value: BEAMING_EXP },
     },
     transparent: true,
     blending: THREE.AdditiveBlending,

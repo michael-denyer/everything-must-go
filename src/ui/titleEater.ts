@@ -154,6 +154,10 @@ export function createTitleEater(
       }
     },
     reset(castSeed): void {
+      // Symmetry requirement: this MUST match the seed expression main.ts
+      // passes to createTitleEater() on first construction (castSeed ^
+      // 0x51ed) — otherwise a reborn cosmos's eater sequence diverges from
+      // a fresh cosmos constructed with the same castSeed.
       rand = mulberry32(castSeed ^ 0x51ed);
       elapsed = 0;
       elapsedSeconds = 0;

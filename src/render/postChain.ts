@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, EXPOSURE, SHADOW_R } from '../config';
+import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD, EXPOSURE, KERR_SPIN, SHADOW_R } from '../config';
 import { createLensingPass } from './lensing';
 import { createShadowRecarve } from './shadowRecarve';
 import { projectHole, uvToPixels } from './projectHole';
@@ -58,9 +58,23 @@ export function createPostChain(
   function project(cam: THREE.PerspectiveCamera, width: number, height: number, shadowR: number): void {
     const { centerUv, radiusUv } = projectHole(cam, shadowR, width, height);
     const aspect = width / height;
-    lensing.update(centerUv, radiusUv, aspect);
-    recarve.update(centerUv, radiusUv, aspect);
-    lastCenterUv = centerUv;
+    // Kerr fake: a spinning hole's shadow sits off-center, displaced toward
+    // the APPROACHING, Doppler-brightened side of the disk — the lensing pass
+    // brightens screen-left (-dir.x), so the shift is negative x. (Real Kerr
+    // images, e.g. Chael/Johnson/Lupsasca 2021, put the shadow displacement on
+    // the same side as the bright crescent, shadow crowding the bright arc with
+    // the wider dark gap on the receding side.) Applied HERE, once, so the
+    // lensing and recarve masks shift together and stay aligned — shifting one
+    // shader but not the other would leave a visible crescent of un-carved
+    // bloom. The x shift is in UV units, so the aspect-corrected distance the
+    // shaders use comes out as KERR_SPIN·0.12 shadow radii.
+    const shifted: [number, number] = [
+      centerUv[0] - (KERR_SPIN * 0.12 * radiusUv) / aspect,
+      centerUv[1],
+    ];
+    lensing.update(shifted, radiusUv, aspect);
+    recarve.update(shifted, radiusUv, aspect);
+    lastCenterUv = shifted;
     lastWidth = width;
     lastHeight = height;
   }

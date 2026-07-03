@@ -42,6 +42,7 @@ export function createDebrisPool(capacity = 8192): {
     well?: { x: number; y: number; z: number; strength: number },
     rogue?: { x: number; y: number; z: number; radius: number },
   ): void;
+  aliveCount(): number;
   dispose(): void;
 } {
   const positions = new Float32Array(capacity * 3).fill(99);
@@ -153,6 +154,11 @@ export function createDebrisPool(capacity = 8192): {
         positions[o + 2] = z + velocities[o + 2]! * dt;
       }
       posAttr.needsUpdate = true;
+    },
+    aliveCount(): number {
+      let n = 0;
+      for (let i = 0; i < capacity; i++) n += alive[i]!;
+      return n;
     },
     dispose(): void {
       geometry.dispose();
