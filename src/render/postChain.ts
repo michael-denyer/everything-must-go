@@ -59,13 +59,17 @@ export function createPostChain(
     const { centerUv, radiusUv } = projectHole(cam, shadowR, width, height);
     const aspect = width / height;
     // Kerr fake: a spinning hole's shadow sits off-center, displaced toward
-    // the receding (screen-right, dim) side of the disk. Applied HERE, once,
-    // so the lensing and recarve masks shift together and stay aligned —
-    // shifting one shader but not the other would leave a visible crescent of
-    // un-carved bloom. The x shift is in UV units, so the aspect-corrected
-    // distance the shaders use comes out as KERR_SPIN·0.12 shadow radii.
+    // the APPROACHING, Doppler-brightened side of the disk — the lensing pass
+    // brightens screen-left (-dir.x), so the shift is negative x. (Real Kerr
+    // images, e.g. Chael/Johnson/Lupsasca 2021, put the shadow displacement on
+    // the same side as the bright crescent, shadow crowding the bright arc with
+    // the wider dark gap on the receding side.) Applied HERE, once, so the
+    // lensing and recarve masks shift together and stay aligned — shifting one
+    // shader but not the other would leave a visible crescent of un-carved
+    // bloom. The x shift is in UV units, so the aspect-corrected distance the
+    // shaders use comes out as KERR_SPIN·0.12 shadow radii.
     const shifted: [number, number] = [
-      centerUv[0] + (KERR_SPIN * 0.12 * radiusUv) / aspect,
+      centerUv[0] - (KERR_SPIN * 0.12 * radiusUv) / aspect,
       centerUv[1],
     ];
     lensing.update(shifted, radiusUv, aspect);

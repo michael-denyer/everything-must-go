@@ -39,7 +39,11 @@ export const EXPOSURE = 0.85;
 // pixel near the core, summing to tens of HDR units that clip flat white under
 // ACES at any exposure. Scaling the per-sprite emissive compresses that sum
 // back under the tonemap shoulder WITHOUT dimming planets, stars, or cast —
-// which a global EXPOSURE cut would. MD feel-tunes this on the live view.
+// which a global EXPOSURE cut would. MD feel-tunes this on the live view; the
+// full Playwright pixel suite (money-shot ring/shadow gates + washout ceiling)
+// was re-run green at 0.12 (2026-07-03). The min-brightness gates ride on the
+// lensed photon ring, which is NOT scaled by this knob, so dimming the disk
+// only relaxes the washout ceiling — it cannot make a gate pass for being dim.
 export const DISK_INTENSITY = 0.12;
 
 // Relativistic shading (2026-07-03 physics pass, MD-requested). LIGHT_SPEED is

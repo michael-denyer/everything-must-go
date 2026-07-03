@@ -280,9 +280,18 @@ export function createSky(
   // plane PLANE_DIST behind the origin along that same fixed direction, i.e.
   // further from the camera than the origin, so it always renders as a
   // distant backdrop.
+  //
+  // lookAt the ORIGIN, not further out: PlaneGeometry's front normal is +Z,
+  // and Object3D.lookAt aligns +Z with (target - position). The plane sits at
+  // -homeDir*PLANE_DIST and the camera is on the +homeDir side, so targeting
+  // the origin makes +Z = +homeDir — the front face points AT the camera.
+  // Targeting further out (-homeDir*2*PLANE_DIST) would flip +Z away from the
+  // camera; with the default FrontSide material that back-face-culls the whole
+  // sky to nothing, and DoubleSide would instead mirror the baked texture,
+  // misaligning the painted nebulae from the 3D anchors the wisps stream from.
   const homeDir = new THREE.Vector3(...camera.position).normalize();
   mesh.position.copy(homeDir.clone().multiplyScalar(-PLANE_DIST));
-  mesh.lookAt(homeDir.clone().multiplyScalar(-PLANE_DIST * 2));
+  mesh.lookAt(0, 0, 0);
 
   const object = new THREE.Object3D();
   object.add(mesh);
