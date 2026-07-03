@@ -14,6 +14,12 @@ import { createBelt } from './render/belt';
 import { createPlanet, type PlanetBody } from './render/planet';
 import { createComet, type CometBody } from './render/comet';
 import { createCast, setCastCamera, type CastBody } from './render/cast';
+import { createSky } from './render/sky';
+import { createGalaxy, setGalaxyCamera } from './render/galaxy';
+import { createCluster } from './render/cluster';
+import { createPulsar } from './render/pulsar';
+import { createShootingStars } from './render/shootingStars';
+import type { Body } from './render/body';
 import { createTitleEater } from './ui/titleEater';
 import castManifest from './assets/cast/manifest.json';
 import whaleUrl from './assets/cast/whale.png';
@@ -48,6 +54,22 @@ const ROGUE_SPAWN_R = 1.7;
 const ROGUE_ANGULAR_RATE = 14;
 const WELL_IDLE_SECONDS = 1.5; // decay-to-off window after the last pointer move
 
+// Nebula wisp-drain window (Global Constraints): emit while progress is in
+// [NEBULA_DRAIN_START, NEBULA_DRAIN_END], rate ramping 0 -> NEBULA_DRAIN_RATE
+// per nebula by NEBULA_RATE_RAMP_END.
+const NEBULA_DRAIN_START = 0.3;
+const NEBULA_DRAIN_END = 0.85;
+const NEBULA_RATE_RAMP_END = 0.6;
+const NEBULA_DRAIN_RATE = 6; // wisps/sec per nebula at full ramp
+
+// Not exported by core/cycle.ts (module-private there) — replicated locally,
+// same clamp-and-cubic idiom, since the nebula drain needs it independently
+// of CycleParams.
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -56,6 +78,7 @@ renderer.setSize(innerWidth, innerHeight);
 const { scene, camera } = createScene();
 scene.background = new THREE.Color(0x05060b);
 setCastCamera(camera);
+setGalaxyCamera(camera);
 
 const q = new URLSearchParams(location.search);
 const debug = q.has('debug');
@@ -75,10 +98,24 @@ let disk: ReturnType<typeof createDiskPoints>;
 let stars: ReturnType<typeof createStarfield>;
 let debris: ReturnType<typeof createDebrisPool>;
 let belt: ReturnType<typeof createBelt>;
-let bodies: Array<PlanetBody | CometBody | CastBody> = [];
+let palette: ReturnType<typeof generatePalette>; // read by frame()'s nebula wisp-drain tint
+let bodies: Body[] = [];
 let cycleT = 0;
 let flashDecay = 0;
 let latestPhase: string = 'serene'; // set once per frame; pointerdown reads this rather than recomputing off raw cycleT (which ignores the t= freeze)
+
+// ---- Deep sky: sky plane + shooting-star decor, rebuilt per cosmos. -------
+let sky: ReturnType<typeof createSky>;
+let shootingStars: ReturnType<typeof createShootingStars>;
+
+// ---- Nebula wisp-drain state: reset per cosmos in seedCosmos(). One entry
+// per spec.nebulae[i] — fractional emission carry, an ordinal counter (feeds
+// the hueA/hueB alternation and jitter/velocity draws), and an ordinal-seeded
+// mulberry32 stream so the Nth wisp from nebula i depends only on
+// (nebula.seed, N), never on frame cadence.
+let nebulaCarry: number[] = [];
+let nebulaOrdinal: number[] = [];
+let nebulaRand: Array<() => number> = [];
 
 // ---- Cast feeding state: reset per cosmos in seedCosmos(). ----------------
 let castOrder: Array<{ name: string; url: string; aspect: number }> = [];
@@ -142,7 +179,13 @@ function seedCosmos(seed: number): void {
     { object: st.points, dispose: () => { st.points.geometry.dispose(); (st.points.material as THREE.Material).dispose(); } },
   );
 
-  const palette = generatePalette(spec.paletteSeed);
+  palette = generatePalette(spec.paletteSeed);
+
+  const sk = createSky(spec, palette, camera);
+  sky = sk;
+  scene.add(sk.object);
+  disposables.push({ object: sk.object, dispose: () => sk.dispose() });
+
   const de = createDebrisPool();
   debris = de;
   const bl = createBelt({
@@ -161,11 +204,32 @@ function seedCosmos(seed: number): void {
 
   const planetBodies = spec.planets.map((ps) => createPlanet(ps, palette, GM));
   const cometBodies = spec.comets.map((cs, i) => createComet(cs, GM, spec.cometSeeds[i]!));
-  bodies = [...planetBodies, ...cometBodies];
+  // Deep-sky dynamic bodies: galaxies/clusters/pulsar all implement Body and
+  // join the same bodies array + update/prune loop as planets/comets. Unlike
+  // cast (see spawnCastMember's renderOrder=1 hack below), these do NOT need
+  // the disk-overpaint fix — that hack exists only because cast silhouettes
+  // are NormalBlending (dark, order-sensitive against the depthTest:false
+  // disk); galaxy/cluster/pulsar are all AdditiveBlending, whose color sums
+  // are order-independent, so no renderOrder juggling is needed here.
+  const galaxyBodies = spec.galaxies.map((g) => createGalaxy(g, palette, GM));
+  const clusterBodies = spec.clusters.map((c) => createCluster(c, palette, GM));
+  const pulsarBodies = spec.pulsar.present ? [createPulsar(spec.pulsar, GM)] : [];
+  bodies = [...planetBodies, ...cometBodies, ...galaxyBodies, ...clusterBodies, ...pulsarBodies];
   for (const b of bodies) {
     scene.add(b.object);
     disposables.push({ object: b.object, dispose: () => b.dispose() });
   }
+
+  const ss = createShootingStars(spec.shootingStarSeed);
+  shootingStars = ss;
+  scene.add(ss.object);
+  disposables.push({ object: ss.object, dispose: () => ss.dispose() });
+
+  // Nebula wisp-drain state: one carry/ordinal/stream per spec.nebulae[i],
+  // reset each cosmos. See the frame() loop for the drain itself.
+  nebulaCarry = spec.nebulae.map(() => 0);
+  nebulaOrdinal = spec.nebulae.map(() => 0);
+  nebulaRand = spec.nebulae.map((n) => mulberry32(n.seed));
 
   // Cast manifest order shuffled by mulberry32(spec.castSeed) — a Fisher-Yates
   // shuffle driven by the seeded stream, so the roster order is deterministic
@@ -331,6 +395,43 @@ function frame(now: number): void {
   const p = evalCycle(spec, effT);
   latestPhase = p.phase;
 
+  sky.setParams({ fade: p.fade, progress: p.progress });
+  shootingStars.update(dt);
+
+  // Nebula wisp drain: while progress is inside the window, each nebula
+  // accumulates a fractional emission carry at a rate that ramps 0 -> 6/s by
+  // progress 0.6, and spawns one debris per whole unit of carry. All rolls
+  // (jitter + tint parity) come from that nebula's own ordinal-seeded stream,
+  // so a given cosmos always drains the same wisps regardless of frame rate.
+  if (p.progress >= NEBULA_DRAIN_START && p.progress <= NEBULA_DRAIN_END) {
+    const rate = NEBULA_DRAIN_RATE * smoothstep(NEBULA_DRAIN_START, NEBULA_RATE_RAMP_END, p.progress);
+    for (let i = 0; i < spec.nebulae.length; i++) {
+      const nebula = spec.nebulae[i]!;
+      const rand = nebulaRand[i]!;
+      nebulaCarry[i] = (nebulaCarry[i] ?? 0) + rate * dt;
+      while (nebulaCarry[i]! >= 1) {
+        const jx = (rand() - 0.5) * 0.1;
+        const jy = (rand() - 0.5) * 0.1;
+        const jz = (rand() - 0.5) * 0.1;
+        const x = nebula.x + jx;
+        const y = nebula.y + jy;
+        const z = nebula.z + jz;
+        const horizR = Math.hypot(x, z) || 1e-6;
+        const inwardSpeed = 0.03;
+        const tangentSpeed = 0.012 + rand() * 0.01;
+        const vx = (-x / horizR) * inwardSpeed - (z / horizR) * tangentSpeed;
+        const vz = (-z / horizR) * inwardSpeed + (x / horizR) * tangentSpeed;
+        const vy = (rand() - 0.5) * 0.005;
+        const ordinal = nebulaOrdinal[i] ?? 0;
+        const hueIdx = ordinal % 2 === 0 ? nebula.hueA : nebula.hueB;
+        const [r, g, b] = paletteRgb(palette, hueIdx, 0.65, 0.6);
+        debris.spawn(x, y, z, vx, vy, vz, r, g, b);
+        nebulaCarry[i]! -= 1;
+        nebulaOrdinal[i] = ordinal + 1;
+      }
+    }
+  }
+
   // Pointer well: decays to off WELL_IDLE_SECONDS after the last move.
   if (wellActive) {
     wellIdleTimer += dt;
@@ -446,12 +547,25 @@ function frame(now: number): void {
   let alivePlanets = 0;
   let aliveComets = 0;
   let aliveCast = 0;
+  let aliveGalaxies = 0;
+  let aliveClusters = 0;
+  let alivePulsar = 0;
   for (const b of bodies) {
     if (b.kind === 'planet') alivePlanets++;
     else if (b.kind === 'comet') aliveComets++;
     else if (b.kind === 'cast') aliveCast++;
+    else if (b.kind === 'galaxy') aliveGalaxies++;
+    else if (b.kind === 'cluster') aliveClusters++;
+    else if (b.kind === 'pulsar') alivePulsar++;
   }
-  const aliveCounts = { planets: alivePlanets, comets: aliveComets, cast: aliveCast };
+  const aliveCounts = {
+    planets: alivePlanets,
+    comets: aliveComets,
+    cast: aliveCast,
+    galaxies: aliveGalaxies,
+    clusters: aliveClusters,
+    pulsar: alivePulsar,
+  };
   (window as unknown as { __emg: object }).__emg = { spec, params: p, alive: aliveCounts };
 
   if (debug) {
