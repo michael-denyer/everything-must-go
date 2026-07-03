@@ -117,11 +117,128 @@ test('rebirth flash whites out the frame', async ({ page }) => {
   expect(mean).toBeGreaterThan(150);
 });
 
+test('feeding spawns a cast member and caps alive count at 2', async ({ page }) => {
+  test.setTimeout(30_000);
+  await page.goto('/?seed=7&t=0.4'); // decay phase: canFeed() gates on decay/carnage
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  await page.waitForTimeout(5000); // let the sim settle before the first feed click
+
+  await page.mouse.click(400, 300);
+  const deadline = Date.now() + 10_000;
+  let cast = 0;
+  while (Date.now() < deadline) {
+    cast = await page.evaluate(() => (window as unknown as { __emg: { alive: { cast: number } } }).__emg.alive.cast);
+    if (cast === 1) break;
+    await page.waitForTimeout(300);
+  }
+  expect(cast).toBe(1);
+
+  // Two more rapid clicks: canFeed() gates on countCastAlive() < 2, so the
+  // second click (which lands once alive is already 2) must not spawn a third.
+  await page.mouse.click(420, 300);
+  await page.mouse.click(440, 300);
+  const capDeadline = Date.now() + 3000;
+  let maxCast = cast;
+  while (Date.now() < capDeadline) {
+    const n = await page.evaluate(() => (window as unknown as { __emg: { alive: { cast: number } } }).__emg.alive.cast);
+    if (n > maxCast) maxCast = n;
+    await page.waitForTimeout(200);
+  }
+  expect(maxCast).toBeLessThanOrEqual(2);
+});
+
+test('feeding is gated off in the serene phase', async ({ page }) => {
+  await page.goto('/?seed=7&t=0.05'); // serene phase: canFeed() requires decay/carnage
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  await page.mouse.click(400, 300);
+  await page.waitForTimeout(5000);
+  const cast = await page.evaluate(() => (window as unknown as { __emg: { alive: { cast: number } } }).__emg.alive.cast);
+  expect(cast).toBe(0);
+});
+
+test('a rogue merger boosts the hole radius beyond the base cycle curve', async ({ page }) => {
+  // Seed 1 is a known rogue-present cosmos, verified at test-authoring time via
+  // a node one-liner replaying generateCosmos's mulberry32(1) draw sequence:
+  // rogue = { present: true, spawnP≈0.5008, mergeP≈0.6880 }. mergeP + 0.03 lands
+  // just past the merge-boost smoothstep window (mergeP -> mergeP+0.02 in cycle.ts),
+  // so rogueMerged is true and the boost is fully applied.
+  const t = 0.6880207758257165 + 0.03;
+  await page.goto(`/?seed=1&t=${t}`);
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  await page.waitForTimeout(3000);
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      __emg: {
+        spec: { holeR0: number; holeGrowth: number };
+        params: { progress: number; holeR: number; rogueMerged: boolean };
+      };
+    };
+    return {
+      rogueMerged: w.__emg.params.rogueMerged,
+      holeR: w.__emg.params.holeR,
+      progress: w.__emg.params.progress,
+      holeR0: w.__emg.spec.holeR0,
+      holeGrowth: w.__emg.spec.holeGrowth,
+    };
+  });
+  expect(result.rogueMerged).toBe(true);
+  const baseHoleR = result.holeR0 * (1 + (result.holeGrowth - 1) * Math.pow(result.progress, 1.6));
+  const boostRatio = result.holeR / baseHoleR;
+  expect(boostRatio).toBeGreaterThan(1.15);
+});
+
+test('the title eater consumes a letter within the first cosmos', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto('/?seed=7&cycle=75'); // live, no t-freeze
+  await page.waitForFunction(
+    () => {
+      const w = window as unknown as { __emg?: { params: { progress: number } } };
+      return w.__emg !== undefined && w.__emg.params.progress > 0.15;
+    },
+    { timeout: 45_000 },
+  );
+
+  // Cadence-fraction contract (Task 5): firings land every [0.125, 0.208) of
+  // cycle-progress, guaranteeing 4-8 firings per cycle at any cycle length —
+  // so at least one eaten letter must appear well before cosmos no. 2.
+  const deadline = Date.now() + 45_000;
+  let eaten = false;
+  while (Date.now() < deadline) {
+    eaten = await page.evaluate(() => {
+      const spans = Array.from(document.querySelectorAll('#title-line span'));
+      return spans.some((el) => {
+        const style = (el as HTMLElement).style;
+        return style.opacity === '0' || style.width === '0px';
+      });
+    });
+    if (eaten) break;
+    const rebornAlready = await page.evaluate(
+      () => document.getElementById('counter')?.textContent?.includes('cosmos no. 2') ?? false,
+    );
+    if (rebornAlready) break;
+    await page.waitForTimeout(1000);
+  }
+  expect(eaten).toBe(true);
+  const rebornYet = await page.evaluate(
+    () => document.getElementById('counter')?.textContent?.includes('cosmos no. 2') ?? false,
+  );
+  expect(rebornYet).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test('a compressed cycle survives rebirth without console errors', async ({ page }) => {
   // MAX_DT (1/30) caps per-frame dt, so on software WebGL (~8 fps here) sim time
   // runs at fps/30 ~= 0.27x wall time and the 45s cycle needs ~170s wall to reach
   // rebirth (measured: 88% consumed at 148s). Real GPUs (>=30 fps) finish in ~50s.
-  test.setTimeout(300_000);
+  // Baseline soak measured ~264s (88% of the prior 300s cap, with one variance
+  // timeout observed) on software WebGL; 420s restores ~1.6x headroom over that
+  // measured runtime while still failing usefully on a genuine hang.
+  test.setTimeout(420_000);
   const errors: string[] = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());

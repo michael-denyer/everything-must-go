@@ -1,0 +1,32 @@
+[
+  {
+    "name": "whale",
+    "file": "whale.png",
+    "aspect": 0.9853658536585366
+  },
+  {
+    "name": "piano",
+    "file": "piano.png",
+    "aspect": 0.9795918367346939
+  },
+  {
+    "name": "trex",
+    "file": "trex.png",
+    "aspect": 1.0717948717948718
+  },
+  {
+    "name": "teacup",
+    "file": "teacup.png",
+    "aspect": 1.1063829787234043
+  },
+  {
+    "name": "bicycle",
+    "file": "bicycle.png",
+    "aspect": 1.4928571428571429
+  },
+  {
+    "name": "duck",
+    "file": "duck.png",
+    "aspect": 1.025
+  }
+]

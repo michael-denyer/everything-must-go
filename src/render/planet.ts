@@ -5,9 +5,11 @@ import type { Palette } from '../core/palette';
 import { paletteRgb } from '../core/palette';
 import { mulberry32 } from '../sim/random';
 import { RING_STRIP, MOON_UNBIND, BURST, CONSUME, stretchFactor } from '../core/tidal';
+import type { Body } from './body';
 
-export interface PlanetBody {
-  object: THREE.Group; // planet mesh + ring mesh + moon meshes, positioned in world space
+export interface PlanetBody extends Body {
+  readonly kind: 'planet';
+  readonly object: THREE.Group; // planet mesh + ring mesh + moon meshes, positioned in world space
   update(
     dt: number,
     gm: number,
@@ -475,6 +477,7 @@ export function createPlanet(spec: PlanetSpec, palette: Palette, gm0: number): P
   }
 
   const body: PlanetBody = {
+    kind: 'planet' as const,
     object: group,
     alive: true,
     update(dt, gm, dragBase, holeR, spawnDebris): void {

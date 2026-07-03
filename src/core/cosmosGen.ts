@@ -1,5 +1,6 @@
 import { CYCLE_SECONDS } from '../config';
 import { mulberry32 } from '../sim/random';
+import { BURST } from './tidal';
 
 // dist/size/speed are raw [0,1) rolls — scaled into world units downstream by render/planet.ts.
 export interface MoonSpec {
@@ -37,6 +38,10 @@ export interface CosmosSpec {
   beltInner: number;
   beltHueIdx: number;
   comets: Array<{ aphelion: number; perihelion: number; phase: number }>;
+  rogue: { present: boolean; spawnP: number; mergeP: number };
+  castSeed: number;
+  castCadence: number;
+  cometSeeds: number[];
 }
 
 export function generateCosmos(seed: number): CosmosSpec {
@@ -84,7 +89,14 @@ export function generateCosmos(seed: number): CosmosSpec {
         ? 0.0335 + sizeRoll * (0.055 - 0.0335)
         : 0.012 + sizeRoll * (0.0335 - 0.012);
     ringCandidates.push(ringCandidate);
-    planets.push({ orbitR, size, kind, ringed: false, moons: [], hueIdx, phase, texSeed });
+    // Floor: a post-draw VALUE transform only — no draw added, removed, or
+    // conditioned. Keeps every planet clear of the burst radius (holeR0 *
+    // BURST) with margin, so a planet can never spawn already inside the
+    // eventual burst shell. Pre-launch: existing seeds' orbitR values may
+    // shift where this floor binds; the seed-42 PINNED test above covers
+    // only M2 fields and is unaffected.
+    const flooredOrbitR = Math.max(orbitR, holeR0 * BURST * 1.35);
+    planets.push({ orbitR: flooredOrbitR, size, kind, ringed: false, moons: [], hueIdx, phase, texSeed });
   }
 
   // Ring assignment: one more draw for the ring count, then a pure sort
@@ -130,6 +142,20 @@ export function generateCosmos(seed: number): CosmosSpec {
     comets.push({ aphelion, perihelion, phase });
   }
 
+  // --- Milestone 4 additions: appended strictly after the comet loop above.
+  // rogue present/spawnP/mergeP are drawn unconditionally — even when
+  // present is false, spawnP and mergeP are still rolled and stored, so the
+  // per-cosmos draw count never branches on the presence roll. ---
+  const roguePresent = rand() < 0.25;
+  const rogueSpawnP = 0.45 + rand() * (0.55 - 0.45);
+  const rogueMergeP = 0.62 + rand() * (0.75 - 0.62);
+  const castSeed = Math.floor(rand() * 2 ** 31);
+  const castCadence = 45 + rand() * (75 - 45);
+  const cometSeeds: number[] = [];
+  for (let i = 0; i < cometCount; i++) {
+    cometSeeds.push(Math.floor(rand() * 2 ** 31));
+  }
+
   return {
     seed,
     cycleSeconds,
@@ -147,5 +173,9 @@ export function generateCosmos(seed: number): CosmosSpec {
     beltInner,
     beltHueIdx,
     comets,
+    rogue: { present: roguePresent, spawnP: rogueSpawnP, mergeP: rogueMergeP },
+    castSeed,
+    castCadence,
+    cometSeeds,
   };
 }
