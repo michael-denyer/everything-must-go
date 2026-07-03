@@ -102,10 +102,13 @@ export function createEnterGate(opts: {
       // immediately, silent, with no gate in the way. Any of these params
       // present means a programmatic/dev entry, not a canonical visitor —
       // skip the gate entirely and start silent.
+      // Note: `cycle` is deliberately NOT in this list. It is a dev/audition
+      // param (short cycle to hear the whole score fast), and it should still
+      // show the gate so sound can be chosen. Every e2e that uses `cycle` also
+      // carries `seed`, so those still skip; only a bare `?cycle=N` (audition)
+      // shows the gate.
       const params = new URLSearchParams(location.search);
-      return (
-        params.has('seed') || params.has('t') || params.has('cycle') || params.has('debug')
-      );
+      return params.has('seed') || params.has('t') || params.has('debug');
     },
     showIfNeeded(): void {
       if (this.shouldSkip()) return;
