@@ -32,7 +32,15 @@ const BEAM_OMEGA = 3; // rad/s, sim-time
 const BEAM_LENGTH = 0.5; // world units
 const BEAM_WIDTH = 0.008; // world units
 const POINT_SIZE_PX = 3;
-const PLUNGE_RATIO = 0.85; // fraction of orbitR below which the personal drag multiplier engages
+// Release the pulsar from its powered orbit into the plunge once dragBase
+// crosses this value. dragBase = DRAG_BASE*(1+5*progress^1.8) (see cycle.ts),
+// so 0.023 corresponds to progress ~= 0.4 — the plan's "plunge engages at
+// progress 0.4". Before this, the pulsar holds a rail orbit at orbitR; after,
+// it free-falls with the x6 multiplier. Gating on dragBase (which the pulsar
+// already receives) rather than its own decaying radius fixes the bug where
+// even the tiny early base drag decayed the small (0.7-0.9) spawn orbit into
+// the hole within ~15s, inside the serene phase (review w8ikd4y1z).
+const PLUNGE_DRAG_THRESHOLD = 0.023;
 const PLUNGE_DRAG_MUL = 6; // x6 personal drag multiplier once plunging
 const FLASH_TINT: [number, number, number] = [0.6, 0.75, 1.0]; // pale blue
 const FLASH_COUNT = 30;
@@ -173,8 +181,15 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
   const orbit = { x: startX, y: 0, z: startZ, vx: startV.vx, vy: 0, vz: startV.vz };
   group.position.set(orbit.x, orbit.y, orbit.z);
 
+  // Angular rate of the powered rail orbit at spec.orbitR (omega = v/r =
+  // sqrt(gm0/r)/r), constant while railing so the spectacle spins at a stable
+  // radius until release.
+  const RAIL_OMEGA = Math.sqrt(gm0 / spec.orbitR) / spec.orbitR;
+
   let alive = true;
   let disposed = false;
+  let plunged = false; // latched true once dragBase crosses the release threshold
+  let railAngle = spec.phase; // advances at RAIL_OMEGA during the powered orbit
   let clock = 0; // accumulated sim-time seconds, drives both the strobe and the beam rotation
   const burstRand = mulberry32(
     // No dedicated integer seed field on PulsarSpec — orbitR/phase are floats,
@@ -213,22 +228,31 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
 
       clock += dt;
 
-      // Body.update carries no `progress` parameter, so the plunge cannot be
-      // driven directly from cycle progress the way the conductor schedules
-      // dragBase itself. Instead: the conductor already grows dragBase with
-      // progress (see main.ts's frame loop), so as the cycle advances the
-      // pulsar's own orbital radius decays under that same growing base drag
-      // like every other orbiting body. Once that natural decay carries the
-      // radius below orbitR * PLUNGE_RATIO, engage an extra x6 PERSONAL drag
-      // multiplier on top of dragBase — the plunge emerges from watching its
-      // own state, not from being told what progress it is. This is the
-      // indirection the plan's contract calls for: no progress input, just a
-      // radius threshold against a multiplier of the same dragBase the
-      // conductor is already scheduling.
-      const rBefore = Math.hypot(orbit.x, orbit.y, orbit.z);
-      const plunging = rBefore < spec.orbitR * PLUNGE_RATIO;
-      const dragMul = 1 - dragBase * (plunging ? PLUNGE_DRAG_MUL : 1) * dt;
-      integrate(orbit, dt, gm, dragMul);
+      // Body.update carries no `progress` parameter, so the plunge is timed off
+      // dragBase, which the conductor grows with progress (dragBase =
+      // DRAG_BASE*(1+5*progress^1.8), see cycle.ts). Two phases:
+      //   1. Powered rail orbit at spec.orbitR while dragBase < threshold — the
+      //      strobe spins at a stable radius through the serene/early-decay
+      //      phases instead of decaying straight into the hole (the pulsar's
+      //      0.7-0.9 spawn orbit is so tight that plain base drag would consume
+      //      it in ~15s otherwise — review w8ikd4y1z).
+      //   2. Once dragBase crosses the threshold (~progress 0.4) latch `plunged`
+      //      and free-fall with the x6 personal multiplier. The rail hands off a
+      //      gm0-circular velocity while live gravity has grown past gm0, so the
+      //      orbit is already sub-circular at release and falls inward, the x6
+      //      drag then carrying it to CONSUME mid-cycle as the plan intends.
+      if (!plunged && dragBase >= PLUNGE_DRAG_THRESHOLD) plunged = true;
+      if (!plunged) {
+        railAngle += RAIL_OMEGA * dt;
+        orbit.x = spec.orbitR * Math.cos(railAngle);
+        orbit.z = spec.orbitR * Math.sin(railAngle);
+        const cv = circularVelocity(orbit.x, orbit.z, gm0);
+        orbit.vx = cv.vx;
+        orbit.vy = 0;
+        orbit.vz = cv.vz;
+      } else {
+        integrate(orbit, dt, gm, 1 - dragBase * PLUNGE_DRAG_MUL * dt);
+      }
       group.position.set(orbit.x, orbit.y, orbit.z);
 
       // Strobe: 4 Hz sim-time square wave, 0.4 <-> 1.0. floor(clock * hz * 2)

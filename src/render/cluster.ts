@@ -28,7 +28,6 @@ type SpawnDebris = (
 const FORCE_SOFTENING = 3e-4; // matches debris.ts's, planet.ts's, and cast.ts's force law exactly
 const ESCAPE_R = 3.4; // guard: same "dragged back out past a sane radius" threshold as cast.ts/galaxy.ts
 const SWALLOW_START = 3.0; // ratio (r / holeR) at which unit-swallow begins, per Global Constraints (holeR*3.0)
-const SWALLOW_SECONDS = 4.0; // sim-time duration of the swallow ramp
 const ACCENT_FRACTION = 0.22; // minority of points drawn as a palette accent rather than warm-white
 
 function circularVelocity(x: number, z: number, gm0: number): { vx: number; vz: number } {
@@ -66,8 +65,11 @@ function gaussian(rand: () => number): number {
 
 // ---- Shader: points lerp their local offset toward the object's own origin
 // (the swallow target) as uSwallow ramps 0->1, so the whole ball collapses
-// inward in its own local frame while the frame itself keeps orbiting toward
-// the world hole position — the cloud visually implodes on the way in.
+// inward in its own local frame. uSwallow is keyed to the frame's PROXIMITY to
+// the hole (ratcheted, in update() below), not a fixed timer: the collapse
+// finishes exactly as the frame reaches the hole, so the cloud implodes INTO
+// the hole rather than shrinking to a knot far out (a 4s timer completed the
+// collapse ~3*holeR away from the hole — review w8ikd4y1z).
 // Brightness rises then fades via a triangular envelope over uSwallow.
 
 const CLUSTER_VERT = /* glsl */ `
@@ -154,8 +156,7 @@ export function createCluster(spec: ClusterSpec, palette: Palette, gm0: number):
 
   let alive = true;
   let disposed = false;
-  let swallowing = false;
-  let swallowTime = 0; // sim-time seconds accumulated once unit-swallow begins
+  let swallowMax = 0; // ratcheted swallow progress, one-way (never un-collapses on an eccentric ratio bounce)
 
   const burstRand = mulberry32(spec.seed + 999);
 
@@ -188,35 +189,34 @@ export function createCluster(spec: ClusterSpec, palette: Palette, gm0: number):
     update(dt, gm, dragBase, holeR, spawnDebris): void {
       if (!alive) return;
 
-      // While swallowing, the cloud keeps orbiting/decaying as a unit (the
-      // frame moves toward the world hole) while the shader collapses each
-      // point's local offset toward the frame's own origin — see CLUSTER_VERT.
+      // The cloud orbits and decays as a unit (the frame moves toward the world
+      // hole) while the shader collapses each point's local offset toward the
+      // frame's own origin — see CLUSTER_VERT.
       integrate(orbit, dt, gm, 1 - dragBase * dt);
       points.position.set(orbit.x, orbit.y, orbit.z);
 
       const r = Math.hypot(orbit.x, orbit.y, orbit.z);
       const ratio = r / holeR;
 
-      if (!swallowing && ratio <= SWALLOW_START) {
-        swallowing = true;
-      }
-
-      if (swallowing) {
-        swallowTime += dt;
-        const uSwallow = Math.min(1, swallowTime / SWALLOW_SECONDS);
-        (material.uniforms.uSwallow!.value as number) = uSwallow;
-        if (uSwallow >= 1) {
-          puff(spawnDebris);
-          alive = false;
-          body.alive = false;
-          return;
-        }
-      }
+      // Swallow keyed to PROXIMITY, ratcheted one-way: 0 at SWALLOW_START*holeR,
+      // 1 at CONSUME*holeR. The collapse tracks the fall, so the ball fully
+      // implodes onto its frame center exactly as that center reaches the hole
+      // (frame center is ~CONSUME*holeR from the origin there — i.e. at the
+      // shadow). The puff then fires at the hole, not out at the spawn orbit.
+      const proximity = (SWALLOW_START - ratio) / (SWALLOW_START - CONSUME);
+      swallowMax = Math.max(swallowMax, Math.min(1, Math.max(0, proximity)));
+      (material.uniforms.uSwallow!.value as number) = swallowMax;
 
       // Consumed/escape guards, house pattern (cast.ts's/galaxy.ts's CONSUME
-      // check): either swallowed by the hole or dragged back out past a sane
-      // radius. ESCAPE_R = 3.4 matches cast.ts's/galaxy.ts's guard.
-      if (ratio <= CONSUME || r > ESCAPE_R) {
+      // check): swallowed by the hole (fire the unit puff) or dragged back out
+      // past a sane radius. ESCAPE_R = 3.4 matches cast.ts's/galaxy.ts's guard.
+      if (ratio <= CONSUME) {
+        puff(spawnDebris);
+        alive = false;
+        body.alive = false;
+        return;
+      }
+      if (r > ESCAPE_R) {
         alive = false;
         body.alive = false;
         return;
