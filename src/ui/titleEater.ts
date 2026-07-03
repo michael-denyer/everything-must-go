@@ -8,7 +8,7 @@ import { mulberry32 } from '../sim/random';
 interface LetterState {
   el: HTMLSpanElement;
   eaten: boolean; // true from the moment it's picked until it regrows
-  regrowAt: number; // cycle-time seconds (accumulated via update's dt) to begin regrow
+  regrowAt: number; // real-world seconds (accumulated via update's dtSeconds) to begin regrow
 }
 
 const CLONE_TRAVEL_SECONDS = 3;
@@ -19,8 +19,12 @@ export function createTitleEater(
   titleEl: HTMLElement,
   cadenceFraction: [number, number],
   seed: number,
-): { update(dtCycleSeconds: number, holeScreenXY: [number, number]): void; reset(): void; dispose(): void } {
-  const rand = mulberry32(seed);
+): {
+  update(dtSeconds: number, cycleSeconds: number, holeScreenXY: [number, number]): void;
+  reset(castSeed: number): void;
+  dispose(): void;
+} {
+  let rand = mulberry32(seed);
   const originalText = titleEl.textContent ?? '';
 
   const letters: LetterState[] = [];
@@ -48,7 +52,8 @@ export function createTitleEater(
     t: number; // 0..1 progress along the curve
   }> = [];
 
-  let elapsed = 0; // cycle-time seconds since the last firing
+  let elapsed = 0; // cycle-progress fraction since the last firing (spec's 90-150s @ 720s cadence)
+  let elapsedSeconds = 0; // real-world seconds, drives clone travel + regrow
   let nextFireAt = cadenceFraction[0] + rand() * (cadenceFraction[1] - cadenceFraction[0]);
 
   function pickUneatenIndex(): number {
@@ -98,7 +103,7 @@ export function createTitleEater(
     });
 
     letter.eaten = true;
-    letter.regrowAt = elapsed + REGROW_AFTER_SECONDS;
+    letter.regrowAt = elapsedSeconds + REGROW_AFTER_SECONDS;
     // Collapse the original over COLLAPSE_SECONDS via the CSS transition set up
     // at construction time — flipping width/opacity here is what triggers it.
     letter.el.style.width = '0px';
@@ -106,18 +111,23 @@ export function createTitleEater(
   }
 
   return {
-    update(dtCycleSeconds, holeScreenXY): void {
-      elapsed += dtCycleSeconds;
+    update(dtSeconds, cycleSeconds, holeScreenXY): void {
+      // Firing cadence stays a cycle-progress fraction (the spec's 90-150s @
+      // 720s cadence, still testable at compressed cycles).
+      elapsed += dtSeconds / cycleSeconds;
+      elapsedSeconds += dtSeconds;
 
       if (elapsed >= nextFireAt) {
         fire(holeScreenXY);
         nextFireAt = elapsed + cadenceFraction[0] + rand() * (cadenceFraction[1] - cadenceFraction[0]);
       }
 
-      // Advance in-flight clones along their quadratic curve.
+      // Advance in-flight clones along their quadratic curve — real seconds,
+      // so a clone always takes CLONE_TRAVEL_SECONDS to reach the hole
+      // regardless of cycle length.
       for (let i = clones.length - 1; i >= 0; i--) {
         const c = clones[i]!;
-        c.t += dtCycleSeconds / CLONE_TRAVEL_SECONDS;
+        c.t += dtSeconds / CLONE_TRAVEL_SECONDS;
         if (c.t >= 1) {
           c.el.remove();
           clones.splice(i, 1);
@@ -133,17 +143,20 @@ export function createTitleEater(
         c.el.style.opacity = `${1 - c.t}`;
       }
 
-      // Regrow letters whose timer has elapsed.
+      // Regrow letters whose timer has elapsed — real seconds, so a letter
+      // always begins regrowing REGROW_AFTER_SECONDS after being eaten.
       for (const letter of letters) {
-        if (letter.eaten && elapsed >= letter.regrowAt) {
+        if (letter.eaten && elapsedSeconds >= letter.regrowAt) {
           letter.eaten = false;
           letter.el.style.width = '';
           letter.el.style.opacity = '1';
         }
       }
     },
-    reset(): void {
+    reset(castSeed): void {
+      rand = mulberry32(castSeed ^ 0x51ed);
       elapsed = 0;
+      elapsedSeconds = 0;
       nextFireAt = cadenceFraction[0] + rand() * (cadenceFraction[1] - cadenceFraction[0]);
       for (const c of clones) c.el.remove();
       clones.length = 0;

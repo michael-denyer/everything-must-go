@@ -187,7 +187,7 @@ function seedCosmos(seed: number): void {
   if (!titleEater) {
     titleEater = createTitleEater(titleLineEl, [0.125, 0.208], spec.castSeed ^ 0x9e3779b9);
   } else {
-    titleEater.reset();
+    titleEater.reset(spec.castSeed);
   }
 }
 
@@ -422,7 +422,7 @@ function frame(now: number): void {
   post.lensing.setFade(p.fade * p.fade);
   post.composer.render();
 
-  titleEater?.update(dt / spec.cycleSeconds, post.holeScreen());
+  titleEater?.update(dt, spec.cycleSeconds, post.holeScreen());
 
   counterEl.textContent = `cosmos no. ${cosmosNo} · ${Math.round(p.progress * 100)}% consumed`;
   let alivePlanets = 0;
