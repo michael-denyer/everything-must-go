@@ -4,6 +4,10 @@ A WebGL art site: a spinning black hole consumes a procedurally generated
 cosmos over a twelve-minute cycle, then a new cosmos is born and it starts
 again. The site is the piece.
 
+Behind it all: a baked galactic band and layered nebulae, satellite galaxies,
+star clusters, and a strobing pulsar, plus shooting stars — all of it draining
+into the disk and fading to black as the cycle consumes it.
+
 Design spec: [.planning/superpowers/specs/2026-07-02-everything-must-go-design.md](.planning/superpowers/specs/2026-07-02-everything-must-go-design.md)
 
 ## Quick start
@@ -25,7 +29,7 @@ Move to stir the gas, click during the fall to feed it something.
 - [x] Milestone 1: money shot — GPU disk, lensed shadow + photon ring + fold, bloom
 - [x] Milestone 2: the consumption cycle and rebirth
 - [x] Milestone 3a: solar system — planets, moons, rings, belt, comets, ring halo
-- [ ] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
+- [x] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
 - [x] Milestone 4: cursor well, silhouette cast, rogue-hole merger (built out of order, ahead of 3b)
 - [ ] Milestone 5: adaptive score and enter gate
 - [ ] Milestone 6: quality tiers, mobile, deploy
