@@ -1,13 +1,28 @@
-// The WebAudio engine: builds real oscillators/gains from the pure score model
-// (score.ts) and applies them via smoothed parameter ramps.
+// The WebAudio engine: an ominous cinematic arrangement, fully synthesized.
 //
-// Hard rule (autoplay policy + headless/node environments): the AudioContext is
-// constructed ONLY inside unlock(), never at module load or inside
-// createAudioEngine(). Every method is a safe no-op before unlock() (or if
-// construction fails / AudioContext is unavailable) and must never throw — this
-// is the graceful-absence contract the visual piece depends on.
+// Rather than holding static drones (which read as a foghorn, not music), this
+// runs a lookahead note SCHEDULER that plays the composition model
+// (composition.ts) — a moving minor-key chord progression on synth strings, a
+// bass ostinato, timpani, and a melodic motif — with layers entering as the
+// cycle intensity (progress) rises. The overall level is gated by fade² so
+// darkness is true silence; the rebirth resolution routes around that gate.
+//
+// Hard rule (autoplay + headless/node): the AudioContext is constructed ONLY in
+// unlock() (a user gesture), never at module load or in createAudioEngine().
+// Every method is a safe no-op before unlock() (or where AudioContext is
+// unavailable) and must never throw — the graceful-absence contract.
 
-import { chirpFrequency, rebirthEnvelope, scoreGains, type CycleAudioParams } from './score';
+import { chirpFrequency, scoreGains, type CycleAudioParams } from './score';
+import {
+  STEPS_PER_BAR,
+  bassHit,
+  chordAtBar,
+  drumHit,
+  melodyNote,
+  padActive,
+  semitoneToFreq,
+  tempoBpm,
+} from './composition';
 
 export interface AudioEngine {
   unlock(): void;
@@ -20,117 +35,74 @@ export interface AudioEngine {
   dispose(): void;
 }
 
-const RAMP_TIME = 0.05; // setTargetAtTime time-constant, per the plan's numeric contract
-
-// Voice tuning: detuned clusters per the plan's "Graph" description.
-const DRONE_FREQS = [55, 55 * 1.005, 55 * 0.993]; // low A, lightly detuned trio
-const PAD_FREQS = [220, 220 * 1.5]; // a fifth apart, slow filter LFO on top
-const TENSION_FREQS = [233.08, 220 * Math.SQRT2]; // minor-second-ish / tritone dissonant pair
-const SUB_FREQ = 32.7; // low sine boom
-
-interface Voice {
-  gain: GainNode;
-}
+const RAMP_TIME = 0.05; // master/chirp ramp time-constant
+const SCHEDULE_AHEAD = 0.18; // s of audio scheduled ahead of the clock
+const LOOKAHEAD_MS = 25; // scheduler wake interval
 
 export function createAudioEngine(): AudioEngine {
   let ctx: AudioContext | null = null;
-  let master: GainNode | null = null;
-  // Resolution bus: a second output path parallel to `master`, feeding the same
-  // analyser -> destination. The rebirth swell routes through HERE, not master,
-  // because master is held at ~0 by the cycle silence contract (fade^2 -> 0)
-  // through darkness/rebirth — so a swell on master would be muted exactly when
-  // it should sound. This bus respects the enabled (mute) flag but NOT the
-  // cycle fade, so the rebirth resolution is audible whenever it fires.
-  let resolution: GainNode | null = null;
+  let master: GainNode | null = null; // cycle-faded bus (music) — silenced in darkness
+  let resolution: GainNode | null = null; // rebirth swell bus — gated by mute only, not the cycle fade
+  let comp: DynamicsCompressorNode | null = null; // catches peaks of the busy mix
   let analyser: AnalyserNode | null = null;
   let analyserBuf: Uint8Array | null = null;
-
-  let drone: Voice | null = null;
-  let pad: Voice | null = null;
-  let tension: Voice | null = null;
-  let sub: Voice | null = null;
   let chirp: { osc: OscillatorNode; gain: GainNode } | null = null;
 
-  const oscillators: OscillatorNode[] = [];
+  const persistentOscs: OscillatorNode[] = []; // only the chirp — the arrangement uses short-lived per-note oscillators
 
   let started = false;
   let enabled = true;
-  let lastMasterLevel = 0; // last scoreGains().master seen, for setEnabled's ramp target
+  let intensity = 0; // cycle progress, drives layer gating + tempo
+  let masterTarget = 0; // last scoreGains().master, for setEnabled's ramp
 
-  // Reset all graph state to the pre-unlock (no-context) condition. Called both
-  // on dispose and when unlock() fails partway through building the graph — a
-  // half-built graph left in place would double its oscillators on the next
-  // unlock() retry (makeDetunedVoice/buildGraph push into oscillators[]).
+  let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentStep = 0;
+  let nextStepTime = 0;
+
   function resetState(): void {
+    if (schedulerTimer !== null) {
+      clearTimeout(schedulerTimer);
+      schedulerTimer = null;
+    }
     ctx = null;
     master = null;
     resolution = null;
+    comp = null;
     analyser = null;
     analyserBuf = null;
-    drone = null;
-    pad = null;
-    tension = null;
-    sub = null;
     chirp = null;
-    oscillators.length = 0;
+    persistentOscs.length = 0;
     started = false;
-  }
-
-  function getCtx(): AudioContext {
-    if (!ctx) throw new Error('no audio context');
-    return ctx;
-  }
-
-  function makeDetunedVoice(
-    audioCtx: AudioContext,
-    dest: AudioNode,
-    freqs: number[],
-    type: OscillatorType,
-    filterHz: number | null,
-  ): Voice {
-    const gain = audioCtx.createGain();
-    gain.gain.value = 0;
-    let target: AudioNode = gain;
-    if (filterHz !== null) {
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = filterHz;
-      filter.connect(dest);
-      target = filter;
-      gain.connect(target);
-    } else {
-      gain.connect(dest);
-    }
-    for (const f of freqs) {
-      const osc = audioCtx.createOscillator();
-      osc.type = type;
-      osc.frequency.value = f;
-      osc.connect(gain);
-      oscillators.push(osc);
-    }
-    return { gain };
+    currentStep = 0;
+    nextStepTime = 0;
   }
 
   function buildGraph(): void {
     if (!ctx) return;
-    master = ctx.createGain();
-    master.gain.value = 0;
-    analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    analyserBuf = new Uint8Array(analyser.fftSize);
-    master.connect(analyser);
-    analyser.connect(ctx.destination);
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -14;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.005;
+    compressor.release.value = 0.2;
+    comp = compressor;
 
-    // Resolution bus (see the declaration above): parallel to master, gated only
-    // by the enabled/mute flag, feeding the same analyser -> destination.
-    resolution = ctx.createGain();
-    resolution.gain.value = enabled ? 1 : 0;
-    resolution.connect(analyser);
+    const an = ctx.createAnalyser();
+    an.fftSize = 512;
+    analyser = an;
+    analyserBuf = new Uint8Array(an.fftSize);
 
-    drone = makeDetunedVoice(ctx, master, DRONE_FREQS, 'sawtooth', 500);
-    pad = makeDetunedVoice(ctx, master, PAD_FREQS, 'triangle', 900);
-    tension = makeDetunedVoice(ctx, master, TENSION_FREQS, 'sawtooth', 1200);
-    sub = makeDetunedVoice(ctx, master, [SUB_FREQ], 'sine', null);
+    compressor.connect(an);
+    an.connect(ctx.destination);
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(compressor);
+    master = masterGain;
+
+    const resGain = ctx.createGain(); // parallel to master, not cycle-faded
+    resGain.gain.value = enabled ? 1 : 0;
+    resGain.connect(compressor);
+    resolution = resGain;
 
     const chirpOsc = ctx.createOscillator();
     chirpOsc.type = 'sine';
@@ -139,20 +111,162 @@ export function createAudioEngine(): AudioEngine {
     chirpGain.gain.value = 0;
     chirpOsc.connect(chirpGain);
     chirpGain.connect(master);
-    oscillators.push(chirpOsc);
+    persistentOscs.push(chirpOsc);
     chirp = { osc: chirpOsc, gain: chirpGain };
   }
 
-  function startOscillators(): void {
-    if (started || !ctx) return;
-    for (const osc of oscillators) {
-      try {
-        osc.start();
-      } catch {
-        // already started / invalid state — stay silent, never throw outward
+  // ---- Voice helpers: each creates short-lived nodes with a scheduled
+  // envelope and stops them, so nothing accumulates. `dest` is master (music,
+  // cycle-faded) except the rebirth swell (resolution bus). ----
+
+  function envGain(time: number, peak: number, attack: number, hold: number, release: number): GainNode {
+    const g = ctx!.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), time + attack);
+    g.gain.setValueAtTime(Math.max(peak, 0.0002), time + attack + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + attack + hold + release);
+    return g;
+  }
+
+  function stopAt(osc: OscillatorNode, time: number, total: number): void {
+    osc.start(time);
+    osc.stop(time + total + 0.05);
+  }
+
+  function playChord(time: number, semis: number[], barDur: number, level: number): void {
+    if (!ctx || !master) return;
+    const attack = 0.35;
+    const release = 0.6;
+    const hold = Math.max(0.1, barDur - attack);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 600 + 1500 * intensity; // opens with intensity
+    filter.Q.value = 0.6;
+    const g = envGain(time, level, attack, hold, release);
+    filter.connect(g);
+    g.connect(master);
+    for (const semi of semis) {
+      const base = semitoneToFreq(semi);
+      for (const det of [-0.35, 0.35]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = base;
+        osc.detune.value = det * 12; // ~4 cents spread -> ensemble shimmer
+        osc.connect(filter);
+        stopAt(osc, time, attack + hold + release);
       }
     }
-    started = true;
+  }
+
+  function playBass(time: number, semi: number, level: number): void {
+    if (!ctx || !master) return;
+    const dur = 0.34;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 320;
+    const g = envGain(time, level, 0.008, 0.02, dur);
+    filter.connect(g);
+    g.connect(master);
+    const base = semitoneToFreq(semi);
+    const saw = ctx.createOscillator();
+    saw.type = 'sawtooth';
+    saw.frequency.value = base;
+    saw.connect(filter);
+    stopAt(saw, time, 0.03 + dur);
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = base / 2;
+    sub.connect(filter);
+    stopAt(sub, time, 0.03 + dur);
+  }
+
+  function playDrum(time: number, level: number): void {
+    if (!ctx || !master) return;
+    const dur = 0.3;
+    // Tuned membrane: a sine dropping in pitch.
+    const g = envGain(time, level, 0.004, 0.0, dur);
+    g.connect(master);
+    const sine = ctx.createOscillator();
+    sine.type = 'sine';
+    sine.frequency.setValueAtTime(78, time);
+    sine.frequency.exponentialRampToValueAtTime(42, time + dur);
+    sine.connect(g);
+    stopAt(sine, time, dur);
+    // Attack transient: a short filtered noise tick.
+    const noiseDur = 0.05;
+    const size = Math.max(1, Math.floor(ctx.sampleRate * noiseDur));
+    const buf = ctx.createBuffer(1, size, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < size; i++) d[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'lowpass';
+    nf.frequency.value = 1800;
+    const ng = envGain(time, level * 0.5, 0.002, 0.0, noiseDur);
+    noise.connect(nf);
+    nf.connect(ng);
+    ng.connect(master);
+    noise.start(time);
+    noise.stop(time + noiseDur + 0.02);
+  }
+
+  function playMelody(time: number, semi: number, dur: number, level: number): void {
+    if (!ctx || !master) return;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1600;
+    filter.Q.value = 1.2;
+    const g = envGain(time, level, 0.08, Math.max(0.05, dur - 0.4), 0.35);
+    filter.connect(g);
+    g.connect(master);
+    const base = semitoneToFreq(semi);
+    // Vibrato LFO on pitch.
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 5.5;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = base * 0.006; // ~10 cents
+    lfo.connect(lfoGain);
+    for (const [type, det] of [['sawtooth', 0], ['triangle', -6]] as Array<[OscillatorType, number]>) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.value = base;
+      osc.detune.value = det;
+      lfoGain.connect(osc.frequency);
+      osc.connect(filter);
+      stopAt(osc, time, 0.08 + dur + 0.35);
+    }
+    stopAt(lfo, time, 0.08 + dur + 0.35);
+  }
+
+  function scheduleStep(step: number, time: number): void {
+    if (!ctx || !master) return;
+    const bar = Math.floor(step / STEPS_PER_BAR);
+    const s = ((step % STEPS_PER_BAR) + STEPS_PER_BAR) % STEPS_PER_BAR;
+    const chord = chordAtBar(bar);
+    const it = intensity;
+    const beatDur = 60 / tempoBpm(it) / 4;
+
+    if (s === 0 && padActive(it)) {
+      playChord(time, chord.padSemis, beatDur * STEPS_PER_BAR, 0.05 + 0.03 * it);
+    }
+    const bh = bassHit(s, it);
+    if (bh) playBass(time, chord.bassSemi, bh === 2 ? 0.42 : 0.26);
+    const dh = drumHit(s, it);
+    if (dh) playDrum(time, dh === 2 ? 0.85 : 0.5);
+    const mel = melodyNote(bar, s, it);
+    if (mel !== null) playMelody(time, mel, beatDur * 6, 0.13);
+  }
+
+  function scheduler(): void {
+    if (!ctx) return;
+    const stepDur = 60 / tempoBpm(intensity) / 4; // 16th-note duration
+    while (nextStepTime < ctx.currentTime + SCHEDULE_AHEAD) {
+      scheduleStep(currentStep, nextStepTime);
+      nextStepTime += stepDur;
+      currentStep++;
+    }
+    schedulerTimer = setTimeout(scheduler, LOOKAHEAD_MS);
   }
 
   function safeSetTarget(param: AudioParam, value: number): void {
@@ -160,7 +274,7 @@ export function createAudioEngine(): AudioEngine {
     try {
       param.setTargetAtTime(value, ctx.currentTime, RAMP_TIME);
     } catch {
-      // no-op — graceful absence contract
+      // no-op — graceful absence
     }
   }
 
@@ -170,17 +284,26 @@ export function createAudioEngine(): AudioEngine {
         if (!ctx) {
           const Ctx =
             (typeof window !== 'undefined' &&
-              (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) ||
+              (window.AudioContext ||
+                (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) ||
             undefined;
-          if (!Ctx) return; // no AudioContext available — silent no-op
+          if (!Ctx) return;
           ctx = new Ctx();
           buildGraph();
         }
-        startOscillators();
-        void getCtx().resume();
+        if (!started && chirp) {
+          try {
+            chirp.osc.start();
+          } catch {
+            // already started
+          }
+          started = true;
+          currentStep = 0;
+          nextStepTime = ctx.currentTime + 0.1;
+          scheduler();
+        }
+        void ctx.resume();
       } catch {
-        // construction/resume failed — fully reset so a retry rebuilds cleanly
-        // (a half-built graph would double its oscillators on the next unlock).
         try {
           void ctx?.close();
         } catch {
@@ -191,19 +314,14 @@ export function createAudioEngine(): AudioEngine {
     },
 
     setCycle(p: CycleAudioParams): void {
-      if (!ctx || !master || !drone || !pad || !tension || !sub || !chirp) return;
+      if (!ctx || !master || !chirp) return;
       try {
-        const g = scoreGains(p);
-        lastMasterLevel = g.master;
-        safeSetTarget(master.gain, enabled ? g.master : 0);
-        safeSetTarget(drone.gain.gain, g.drone);
-        safeSetTarget(pad.gain.gain, g.pad);
-        safeSetTarget(tension.gain.gain, g.tension);
-        safeSetTarget(sub.gain.gain, g.sub);
-
+        intensity = p.progress < 0 ? 0 : p.progress > 1 ? 1 : p.progress;
+        masterTarget = scoreGains(p).master; // = fade^2 (silence gate)
+        safeSetTarget(master.gain, enabled ? masterTarget : 0);
         if (p.rogueActive) {
           safeSetTarget(chirp.osc.frequency, chirpFrequency(p.rogueProgress));
-          safeSetTarget(chirp.gain.gain, 0.05 + 0.2 * p.rogueProgress);
+          safeSetTarget(chirp.gain.gain, enabled ? 0.04 + 0.16 * p.rogueProgress : 0);
         } else {
           safeSetTarget(chirp.gain.gain, 0);
         }
@@ -215,82 +333,74 @@ export function createAudioEngine(): AudioEngine {
     hit(kind: 'break' | 'galaxyDeath' | 'rebirth'): void {
       if (!ctx || !master || !resolution) return;
       try {
-        const audioCtx = ctx;
-        const now = audioCtx.currentTime;
+        const now = ctx.currentTime;
         if (kind === 'break' || kind === 'galaxyDeath') {
           const long = kind === 'galaxyDeath';
           const dur = long ? 0.4 : 0.22;
-          const thumpFreq = long ? 55 : 90;
-
-          // Filtered white-noise burst.
-          const noiseDur = dur;
-          const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * noiseDur));
-          const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+          const size = Math.max(1, Math.floor(ctx.sampleRate * dur));
+          const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
           const data = buffer.getChannelData(0);
-          for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-          const noise = audioCtx.createBufferSource();
+          for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+          const noise = ctx.createBufferSource();
           noise.buffer = buffer;
-          const bandpass = audioCtx.createBiquadFilter();
+          const bandpass = ctx.createBiquadFilter();
           bandpass.type = 'bandpass';
-          bandpass.frequency.value = long ? 400 : 900;
+          bandpass.frequency.value = long ? 380 : 820;
           bandpass.Q.value = 0.8;
-          const noiseGain = audioCtx.createGain();
-          noiseGain.gain.setValueAtTime(0.0001, now);
-          noiseGain.gain.linearRampToValueAtTime(long ? 0.5 : 0.6, now + 0.01);
-          noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+          const ng = envGain(now, long ? 0.4 : 0.5, 0.006, 0.0, dur);
           noise.connect(bandpass);
-          bandpass.connect(noiseGain);
-          noiseGain.connect(master);
+          bandpass.connect(ng);
+          ng.connect(master);
           noise.start(now);
           noise.stop(now + dur + 0.02);
 
-          // Low sine thump.
-          const thump = audioCtx.createOscillator();
+          const thump = ctx.createOscillator();
           thump.type = 'sine';
-          thump.frequency.setValueAtTime(thumpFreq, now);
-          thump.frequency.exponentialRampToValueAtTime(Math.max(20, thumpFreq * 0.5), now + dur);
-          const thumpGain = audioCtx.createGain();
-          thumpGain.gain.setValueAtTime(0.0001, now);
-          thumpGain.gain.linearRampToValueAtTime(long ? 0.45 : 0.5, now + 0.01);
-          thumpGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-          thump.connect(thumpGain);
-          thumpGain.connect(master);
+          thump.frequency.setValueAtTime(long ? 60 : 95, now);
+          thump.frequency.exponentialRampToValueAtTime(long ? 32 : 48, now + dur);
+          const tg = envGain(now, long ? 0.45 : 0.5, 0.006, 0.0, dur);
+          thump.connect(tg);
+          tg.connect(master);
           thump.start(now);
           thump.stop(now + dur + 0.02);
         } else {
-          // rebirth: a soft resolution swell — a couple of sine partials enveloped
-          // by rebirthEnvelope's raised-cosine shape, sampled at schedule time and
-          // laid down as WebAudio ramp automation (no frame loop available here).
-          const REBIRTH_DURATION = 2.5;
-          const partials = [220, 330]; // a soft, consonant fifth
-          const steps = 24;
-          for (const freq of partials) {
-            const osc = audioCtx.createOscillator();
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-            const g = audioCtx.createGain();
-            g.gain.setValueAtTime(0, now);
-            for (let i = 0; i <= steps; i++) {
-              const t = (i / steps) * REBIRTH_DURATION;
-              const env = rebirthEnvelope(t);
-              g.gain.linearRampToValueAtTime(0.001 + env * 0.18, now + t);
+          // rebirth: a warm D-major resolution (Picardy third) on the resolution
+          // bus, so it sounds through the cycle silence as the new cosmos blooms.
+          const DUR = 2.6;
+          const triad = [293.66, 369.99, 440.0]; // D4, F#4, A4
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = 1400;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.0001, now);
+          g.gain.exponentialRampToValueAtTime(0.16, now + 0.7);
+          g.gain.setValueAtTime(0.16, now + 1.4);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + DUR);
+          filter.connect(g);
+          g.connect(resolution);
+          for (const f of triad) {
+            for (const det of [-4, 4]) {
+              const osc = ctx.createOscillator();
+              osc.type = 'triangle';
+              osc.frequency.value = f;
+              osc.detune.value = det;
+              osc.connect(filter);
+              osc.start(now);
+              osc.stop(now + DUR + 0.05);
             }
-            osc.connect(g);
-            g.connect(resolution); // resolution bus, not master — audible through the cycle silence
-            osc.start(now);
-            osc.stop(now + REBIRTH_DURATION + 0.05);
           }
         }
       } catch {
-        // no-op — a failed one-shot must never throw outward
+        // no-op
       }
     },
 
     setEnabled(on: boolean): void {
       enabled = on;
       if (!ctx || !master) return;
-      safeSetTarget(master.gain, on ? lastMasterLevel : 0);
+      safeSetTarget(master.gain, on ? masterTarget : 0);
       if (resolution) safeSetTarget(resolution.gain, on ? 1 : 0);
+      if (!on && chirp) safeSetTarget(chirp.gain.gain, 0);
     },
 
     suspend(): void {
@@ -327,13 +437,16 @@ export function createAudioEngine(): AudioEngine {
     },
 
     dispose(): void {
-      if (!ctx) return;
+      if (!ctx) {
+        resetState();
+        return;
+      }
       try {
-        for (const osc of oscillators) {
+        for (const osc of persistentOscs) {
           try {
             osc.stop();
           } catch {
-            // may already be stopped/never started — ignore
+            // already stopped / never started
           }
         }
         void ctx.close();
