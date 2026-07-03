@@ -53,7 +53,6 @@ const DISSOLVE_SECONDS = 2.5; // ramp duration once dissolve begins, in cycle-ti
 const SHED_DEBRIS_PER_SEC = 5 / (1 / 60); // "<=5/frame" budget expressed as a rate, capped per-frame below
 const SHED_TINT: [number, number, number] = [1.0, 0.72, 0.42]; // warm tint while dissolving
 const RIM_TINT: [number, number, number] = [1.0, 0.66, 0.37]; // warm rim color, uRim uniform
-const BASE_COLOR: [number, number, number] = [0.028, 0.031, 0.055]; // near-black blue
 
 // Camera set once by the conductor (Task 5) via setCastCamera. Billboarding
 // and the uHoleDirScreen projection both need it; if it's never set, update()
@@ -88,7 +87,6 @@ const CAST_VERT = /* glsl */ `
 const CAST_FRAG = /* glsl */ `
   uniform sampler2D uMask;
   uniform vec2 uHoleDirScreen;
-  uniform float uStretch;
   uniform float uDissolve;
   uniform vec3 uRim;
   varying vec2 vUv;
@@ -135,7 +133,6 @@ export function createCast(
     uniforms: {
       uMask: { value: texture },
       uHoleDirScreen: { value: new THREE.Vector2(0, 1) },
-      uStretch: { value: 0 },
       uDissolve: { value: 0 },
       uRim: { value: new THREE.Vector3(RIM_TINT[0], RIM_TINT[1], RIM_TINT[2]) },
     },
@@ -246,7 +243,6 @@ export function createCast(
       if (maxStretch > 0) {
         mesh.rotation.z = Math.atan2(screenDir.y, screenDir.x);
         mesh.scale.set(1 + 2.4 * maxStretch, Math.max(0.55, 1 - 0.3 * maxStretch), 1);
-        (material.uniforms.uStretch!.value as number) = maxStretch;
       }
 
       if (maxStretch > DISSOLVE_START) {

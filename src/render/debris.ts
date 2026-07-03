@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONSUME } from '../core/tidal';
+import { WELL_RADIUS } from '../config';
 
 // Debris that drifts past this radius has left the visible cosmos; matches
 // no other module's constant, this is purely a cull-distance budget.
@@ -134,10 +135,12 @@ export function createDebrisPool(capacity = 8192): {
         velocities[o + 2] = (velocities[o + 2]! + az * dt) * dragMul;
         // Cursor well: added directly to velocity (not folded into accel),
         // matching gpuSim's velocity shader `next += dir * (strength*dt/(d2+0.006))`.
+        // WELL_RADIUS * WELL_RADIUS mirrors gpuSim.ts's `${wellRadiusSq}` build-time
+        // interpolation of the same constant — keep both in sync if WELL_RADIUS changes.
         if (well && well.strength > 0) {
           const dxw = well.x - x, dyw = well.y - y, dzw = well.z - z;
           const d2 = dxw * dxw + dyw * dyw + dzw * dzw;
-          if (d2 < 0.25) {
+          if (d2 < WELL_RADIUS * WELL_RADIUS) {
             const dw = Math.max(Math.sqrt(d2), 1e-4);
             const wf = (well.strength * dt) / (d2 + 0.006);
             velocities[o] = velocities[o]! + (dxw / dw) * wf;

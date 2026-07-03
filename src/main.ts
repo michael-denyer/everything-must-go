@@ -32,6 +32,15 @@ const CAST_URLS: Record<string, string> = {
   duck: duckUrl,
 };
 
+// Fail loudly at boot, not silently at spawn: a manifest entry with no
+// matching CAST_URLS mapping would otherwise resolve to `undefined` and only
+// surface once that entry's turn comes up in the shuffled cast order.
+for (const entry of castManifest as Array<{ name: string }>) {
+  if (!(entry.name in CAST_URLS)) {
+    throw new Error(`cast manifest entry "${entry.name}" has no matching CAST_URLS mapping`);
+  }
+}
+
 const ROGUE_SPAWN_R = 1.7;
 // Rogue orbital rate: an angular-velocity constant (radians per cycle-progress
 // unit) applied uniformly across the spawn->merge window. Deterministic from
@@ -326,7 +335,11 @@ function frame(now: number): void {
   sim.setWell(wellX, 0, wellZ, wellStrength);
 
   // Feeding: auto-feed accumulator, gated by phase + cast-alive same as the
-  // pointerdown path.
+  // pointerdown path. castCadence is a 45-75s absolute (real-seconds) draw
+  // (cosmosGen.ts) — at heavily compressed cycles it can exceed the entire
+  // decay+carnage span, so no auto-feed fires; cast coverage at those cycle
+  // lengths comes from clicks instead. Intentional: castCadence stays
+  // spec-faithful (45-75s) at real pacing rather than scaling with cycle length.
   if (canFeed(p.phase)) {
     castAutoAccum += dt;
     if (castAutoAccum >= spec.castCadence) {

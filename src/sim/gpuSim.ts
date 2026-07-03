@@ -1,7 +1,7 @@
 // src/sim/gpuSim.ts
 import * as THREE from 'three';
 import { GPUComputationRenderer, type Variable } from 'three/addons/misc/GPUComputationRenderer.js';
-import { DRAG_BASE } from '../config';
+import { DRAG_BASE, WELL_RADIUS } from '../config';
 import { seedDisk, type DiskOpts } from './diskSeeder';
 
 const SIM_COMMON = /* glsl */ `
@@ -100,14 +100,14 @@ const VELOCITY_SHADER = /* glsl */ `
       accel += dirR * (0.2 * uGm / (d2r + 3e-4));
     }
     vec3 next = (vel + accel * uDt) * (1.0 - uDrag * uDt);
-    // Cursor well: attracts particles within WELL_RADIUS (0.25 = WELL_RADIUS²,
-    // baked as a literal since GLSL uniforms can't be squared at compile time).
-    // Added directly to next (not folded into accel) per contract — this term
-    // already bakes in uDt itself, applied post-drag like a direct nudge.
+    // Cursor well: attracts particles within WELL_RADIUS (WELL_RADIUS² baked
+    // in below at build time, since GLSL uniforms can't be squared at compile
+    // time). Added directly to next (not folded into accel) per contract —
+    // this term already bakes in uDt itself, applied post-drag like a direct nudge.
     if (uWell.w > 0.0) {
       vec3 toWell = uWell.xyz - pos;
       float d2 = dot(toWell, toWell);
-      if (d2 < 0.25) {
+      if (d2 < ${'$'}{wellRadiusSq}) {
         vec3 dir = toWell / max(sqrt(d2), 1e-4);
         next += dir * (uWell.w * uDt / (d2 + 0.006));
       }
@@ -117,7 +117,7 @@ const VELOCITY_SHADER = /* glsl */ `
 `;
 
 function buildShader(template: string): string {
-  return template.replace('${common}', SIM_COMMON);
+  return template.replace('${common}', SIM_COMMON).replace('${wellRadiusSq}', `${WELL_RADIUS * WELL_RADIUS}`);
 }
 
 export class GpuSim {
