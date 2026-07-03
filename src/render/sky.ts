@@ -108,8 +108,11 @@ function projectToCanvas(
   };
 }
 
-// ---- (b) Nebulae: 3 layered radial gradients per nebula in hueA/hueB, plus
-// 1-2 dark lanes. ----
+// ---- (b) Nebulae: a diffuse wispy cloud built from many small low-opacity
+// puffs of varied hue and size, so overlaps accumulate into turbulent gas
+// rather than one saturated blob. No straight dust lanes (they read as drawn-on
+// lines); structure comes from the gaps between puffs. A few embedded stars add
+// texture. hueA/hueB set the two-tone palette the puffs interpolate between. ----
 function paintNebula(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -120,45 +123,48 @@ function paintNebula(
   palette: Palette,
   rand: () => number,
 ): void {
-  const layers: Array<{ hue: number; scale: number; alpha: number; s: number; l: number }> = [
-    { hue: hueA, scale: 1.0, alpha: 0.5, s: 0.72, l: 0.5 },
-    { hue: hueB, scale: 0.68, alpha: 0.42, s: 0.65, l: 0.55 },
-    { hue: hueA, scale: 0.4, alpha: 0.5, s: 0.5, l: 0.68 },
-  ];
-  for (const layer of layers) {
-    const [r, g, b] = paletteRgb(palette, layer.hue, layer.s, layer.l);
-    const ox = (rand() - 0.5) * radiusPx * 0.3;
-    const oy = (rand() - 0.5) * radiusPx * 0.3;
-    const rad = radiusPx * layer.scale;
-    const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, rad);
-    grad.addColorStop(0, rgbaCss(r, g, b, layer.alpha));
-    grad.addColorStop(0.55, rgbaCss(r, g, b, layer.alpha * 0.45));
+  // Elliptical, tilted footprint so clouds aren't perfect circles.
+  const tilt = rand() * Math.PI;
+  const squash = 0.6 + rand() * 0.35;
+  const cosT = Math.cos(tilt);
+  const sinT = Math.sin(tilt);
+  const place = (t: number): { x: number; y: number } => {
+    // Clustered toward center (t in [0,1] radial fraction), tilted + squashed.
+    const ang = rand() * Math.PI * 2;
+    const rr = t * radiusPx;
+    const lx = Math.cos(ang) * rr;
+    const ly = Math.sin(ang) * rr * squash;
+    return { x: cx + lx * cosT - ly * sinT, y: cy + lx * sinT + ly * cosT };
+  };
+
+  const puffCount = 34;
+  for (let i = 0; i < puffCount; i++) {
+    const { x, y } = place(Math.pow(rand(), 0.55));
+    const puffR = radiusPx * (0.14 + rand() * 0.4);
+    // Hue interpolates hueA<->hueB with a little jitter, so the cloud shifts
+    // tone across its body instead of being one flat color.
+    const mix = rand();
+    const hue = Math.round(hueA * (1 - mix) + hueB * mix) + Math.floor((rand() - 0.5) * 3);
+    const [r, g, b] = paletteRgb(palette, hue, 0.5 + rand() * 0.28, 0.5 + rand() * 0.22);
+    const a = 0.03 + rand() * 0.075; // low — depth builds only where puffs overlap
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, puffR);
+    grad.addColorStop(0, rgbaCss(r, g, b, a));
+    grad.addColorStop(0.6, rgbaCss(r, g, b, a * 0.4));
     grad.addColorStop(1, rgbaCss(r, g, b, 0));
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(cx + ox, cy + oy, rad, 0, Math.PI * 2);
+    ctx.arc(x, y, puffR, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  const laneCount = 1 + Math.floor(rand() * 2); // 1-2
-  for (let i = 0; i < laneCount; i++) {
-    const laneAngle = rand() * Math.PI * 2;
-    const laneLen = radiusPx * (0.9 + rand() * 0.6);
-    const laneWidth = radiusPx * (0.08 + rand() * 0.1);
-    const lx = Math.cos(laneAngle);
-    const ly = Math.sin(laneAngle);
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(laneAngle);
-    const grad = ctx.createLinearGradient(-laneLen / 2, 0, laneLen / 2, 0);
-    grad.addColorStop(0, rgbaCss(0, 0, 0, 0));
-    grad.addColorStop(0.5, rgbaCss(0, 0, 0, 0.4));
-    grad.addColorStop(1, rgbaCss(0, 0, 0, 0));
-    ctx.fillStyle = grad;
-    ctx.fillRect(-laneLen / 2, -laneWidth / 2, laneLen, laneWidth);
-    ctx.restore();
-    void lx;
-    void ly;
+  // Embedded stars: faint blue-white points scattered through the cloud.
+  const starCount = 46;
+  for (let i = 0; i < starCount; i++) {
+    const { x, y } = place(Math.pow(rand(), 0.7));
+    const a = 0.15 + rand() * 0.4;
+    const s = 0.6 + rand() * 1.1;
+    ctx.fillStyle = rgbaCss(0.86, 0.9, 1.0, a);
+    ctx.fillRect(x, y, s, s);
   }
 }
 
@@ -182,24 +188,32 @@ function paintDecorGalaxy(
   ctx.arc(cx, cy, radiusPx * 0.5, 0, Math.PI * 2);
   ctx.fill();
 
+  // Diffuse spiral: dots jittered well off the ideal arm and faded low, so the
+  // galaxy reads as a soft distant smudge, not a hard-edged pinwheel drawing.
   const armCount = 2;
-  const dotsPerArm = 70;
-  const turns = 1.6;
+  const dotsPerArm = 90;
+  const turns = 1.7;
+  const flatten = 0.5 + rand() * 0.25;
+  const spiralTilt = rand() * Math.PI;
+  const ct = Math.cos(spiralTilt);
+  const st = Math.sin(spiralTilt);
   for (let a = 0; a < armCount; a++) {
     const armOffset = (a / armCount) * Math.PI * 2;
     for (let i = 0; i < dotsPerArm; i++) {
       const t = i / dotsPerArm;
-      const angle = armOffset + t * turns * Math.PI * 2 + (rand() - 0.5) * 0.3;
-      const rad = radiusPx * t;
-      const x = cx + Math.cos(angle) * rad;
-      const y = cy + Math.sin(angle) * rad * 0.55; // flattened, viewed edge-on-ish
-      const bright = 0.4 + rand() * 0.6 * (1 - t);
-      const s = 0.6 + rand() * 1.2;
+      const angle = armOffset + t * turns * Math.PI * 2 + (rand() - 0.5) * 0.9;
+      const rad = radiusPx * t * (0.85 + rand() * 0.3); // radial scatter off the arm
+      const lx = Math.cos(angle) * rad;
+      const ly = Math.sin(angle) * rad * flatten;
+      const x = cx + lx * ct - ly * st;
+      const y = cy + lx * st + ly * ct;
+      const bright = (0.3 + rand() * 0.4) * (1 - t * 0.7);
+      const s = 0.5 + rand() * 1.0;
       ctx.fillStyle = rgbaCss(
-        Math.min(1, r * bright + 0.3),
-        Math.min(1, g * bright + 0.3),
-        Math.min(1, b * bright + 0.3),
-        0.5 + rand() * 0.4,
+        Math.min(1, r * 0.4 + bright + 0.12),
+        Math.min(1, g * 0.4 + bright + 0.12),
+        Math.min(1, b * 0.4 + bright + 0.12),
+        0.22 + rand() * 0.28,
       );
       ctx.fillRect(x, y, s, s);
     }
@@ -221,7 +235,9 @@ function bakeSkyTexture(spec: CosmosSpec, palette: Palette, camera: THREE.Perspe
     const world = new THREE.Vector3(nebula.x, nebula.y, nebula.z);
     const { x, y } = projectToCanvas(world, camera, PLANE_FILL);
     const nebRand = mulberry32(nebula.seed);
-    const radiusPx = TEX_W * 0.09 * nebula.scale * (1.4 + nebRand());
+    // Smaller than the original blobs: these dominated the lower view. The
+    // wispy multi-puff paint reads as gas at this size instead of a solid ball.
+    const radiusPx = TEX_W * 0.055 * nebula.scale * (1.1 + nebRand() * 0.7);
     paintNebula(ctx, x, y, radiusPx, nebula.hueA, nebula.hueB, palette, nebRand);
   }
 

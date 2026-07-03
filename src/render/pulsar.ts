@@ -30,8 +30,8 @@ const STROBE_HZ = 4; // sim-time square-wave frequency
 const STROBE_LOW = 0.4;
 const STROBE_HIGH = 1.0;
 const BEAM_OMEGA = 3; // rad/s, sim-time
-const BEAM_LENGTH = 0.5; // world units
-const BEAM_WIDTH = 0.008; // world units
+const BEAM_LENGTH = 0.24; // world units — short glints, not a long spinning bar
+const BEAM_WIDTH = 0.007; // world units
 const POINT_SIZE_PX = 3;
 // Release the pulsar from its powered orbit into the plunge once dragBase
 // crosses this value. dragBase = DRAG_BASE*(1+5*progress^1.8) (see cycle.ts),
@@ -263,8 +263,12 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
       const phase = Math.floor(clock * STROBE_HZ * 2) % 2;
       const intensity = phase === 0 ? STROBE_HIGH : STROBE_LOW;
       (pointMaterial.uniforms.uIntensity!.value as number) = intensity;
-      (beamMaterialA.uniforms.uIntensity!.value as number) = intensity;
-      (beamMaterialB.uniforms.uIntensity!.value as number) = intensity;
+      // Beams flash only on the bright half of the strobe (0 otherwise) so the
+      // pulsar reads as intermittent sweeping glints rather than a continuous
+      // spinning bar orbiting the hole.
+      const beamIntensity = phase === 0 ? STROBE_HIGH : 0;
+      (beamMaterialA.uniforms.uIntensity!.value as number) = beamIntensity;
+      (beamMaterialB.uniforms.uIntensity!.value as number) = beamIntensity;
 
       // Beams: rotate about the pulsar point at BEAM_OMEGA rad/s sim-time.
       beamsGroup.rotation.z = clock * BEAM_OMEGA;

@@ -92,19 +92,25 @@ function bakeGalaxyTexture(seed: number, palette: Palette, hueIdx: number): THRE
   const rand = mulberry32(seed);
   const cx = TEX_SIZE / 2;
   const cy = TEX_SIZE / 2;
-  const [r, g, b] = paletteRgb(palette, hueIdx, 0.6, 0.62);
-  const [r2, g2, b2] = paletteRgb(palette, hueIdx + 1, 0.5, 0.75);
+  // Desaturated: real galaxies are mostly starlight (white) with only a faint
+  // color cast. High-saturation tints read as solid colored "blobs" at this
+  // small on-screen size, so pull saturation low and lightness high, then
+  // blend the dots toward white — the hue survives as a tint, not a fill.
+  const [r, g, b] = paletteRgb(palette, hueIdx, 0.3, 0.72);
+  const [r2, g2, b2] = paletteRgb(palette, hueIdx + 1, 0.22, 0.82);
 
-  // Soft core glow.
-  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, TEX_SIZE * 0.22);
-  core.addColorStop(0, rgbaCss(r2, g2, b2, 0.95));
+  // Soft, faint core glow (was near-opaque, which is what made it a blob).
+  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, TEX_SIZE * 0.26);
+  core.addColorStop(0, rgbaCss((r2 + 1) / 2, (g2 + 1) / 2, (b2 + 1) / 2, 0.42));
+  core.addColorStop(0.5, rgbaCss(r2, g2, b2, 0.14));
   core.addColorStop(1, rgbaCss(r2, g2, b2, 0));
   ctx.fillStyle = core;
   ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
 
-  // Two-arm dot-spiral, dots fading with radius and jittered off the ideal arm.
+  // Two-arm dot-spiral, dots fading with radius and jittered off the ideal arm,
+  // each pulled most of the way to white so the arms read as resolved stars.
   const arms = 2;
-  const dotsPerArm = 260;
+  const dotsPerArm = 300;
   const maxR = TEX_SIZE * 0.48;
   for (let arm = 0; arm < arms; arm++) {
     const armOffset = (arm / arms) * Math.PI * 2;
@@ -112,13 +118,14 @@ function bakeGalaxyTexture(seed: number, palette: Palette, hueIdx: number): THRE
       const t = i / dotsPerArm;
       const rad = t * maxR;
       const theta = armOffset + t * Math.PI * 2.4;
-      const jitterR = (rand() - 0.5) * TEX_SIZE * 0.05;
-      const jitterTheta = (rand() - 0.5) * 0.35;
+      const jitterR = (rand() - 0.5) * TEX_SIZE * 0.07;
+      const jitterTheta = (rand() - 0.5) * 0.5;
       const px = cx + Math.cos(theta + jitterTheta) * (rad + jitterR);
       const py = cy + Math.sin(theta + jitterTheta) * (rad + jitterR);
-      const alpha = (1 - t) * (0.15 + rand() * 0.35);
-      const size = 1 + rand() * 1.6;
-      ctx.fillStyle = rgbaCss(r, g, b, alpha);
+      const alpha = (1 - t) * (0.12 + rand() * 0.28);
+      const size = 0.8 + rand() * 1.4;
+      const w = 0.55; // whiten
+      ctx.fillStyle = rgbaCss(r * (1 - w) + w, g * (1 - w) + w, b * (1 - w) + w, alpha);
       ctx.fillRect(px, py, size, size);
     }
   }
