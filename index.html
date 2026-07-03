@@ -25,6 +25,91 @@
       font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1px;
       user-select: none; pointer-events: none;
     }
+
+    .hidden { display: none !important; }
+
+    #enter-gate {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, rgba(9, 11, 20, .88) 0%, rgba(3, 4, 8, .97) 70%);
+      pointer-events: auto;
+    }
+    #enter-gate .gate-content {
+      display: flex; flex-direction: column; align-items: center; gap: 18px;
+      text-align: center; padding: 24px; max-width: 90vw;
+    }
+    #enter-gate h1 {
+      margin: 0; color: rgba(238, 242, 252, .9);
+      font-family: system-ui, sans-serif; font-size: 20px; font-weight: 500;
+      letter-spacing: 6px;
+    }
+    #enter-gate .subtitle {
+      margin: 0; color: rgba(168, 178, 205, .65);
+      font-family: system-ui, sans-serif; font-size: 12px; letter-spacing: 1px;
+      font-weight: 400;
+    }
+    .gate-buttons { display: flex; gap: 14px; margin-top: 8px; }
+    .gate-btn {
+      pointer-events: auto; cursor: pointer;
+      font-family: system-ui, sans-serif; font-size: 12px; letter-spacing: 1.5px;
+      color: rgba(238, 242, 252, .85); background: transparent;
+      border: 1px solid rgba(168, 178, 205, .35); border-radius: 3px;
+      padding: 10px 18px; transition: border-color .2s ease, color .2s ease, background .2s ease;
+    }
+    .gate-btn:hover, .gate-btn:focus-visible {
+      border-color: rgba(238, 242, 252, .7); color: #fff;
+      background: rgba(238, 242, 252, .06); outline: none;
+    }
+    .gate-btn.preferred { border-color: rgba(238, 242, 252, .6); }
+    #about-link {
+      pointer-events: auto; cursor: pointer; margin-top: 6px;
+      font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1px;
+      color: rgba(168, 178, 205, .5); text-decoration: underline; background: none; border: none;
+    }
+    #about-link:hover, #about-link:focus-visible { color: rgba(238, 242, 252, .8); outline: none; }
+
+    #sound-toggle {
+      position: fixed; top: 18px; right: 20px; z-index: 900;
+      pointer-events: auto; cursor: pointer;
+      font-family: system-ui, sans-serif; font-size: 15px;
+      color: rgba(238, 242, 252, .75); background: transparent;
+      border: 1px solid rgba(168, 178, 205, .3); border-radius: 3px;
+      width: 34px; height: 34px; line-height: 1; display: flex; align-items: center; justify-content: center;
+      transition: border-color .2s ease, background .2s ease;
+    }
+    #sound-toggle:hover, #sound-toggle:focus-visible {
+      border-color: rgba(238, 242, 252, .6); background: rgba(238, 242, 252, .06); outline: none;
+    }
+
+    #about {
+      position: fixed; inset: 0; z-index: 1100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(3, 4, 8, .92); pointer-events: auto;
+    }
+    #about .about-content {
+      max-width: 440px; padding: 26px 28px; margin: 24px;
+      border: 1px solid rgba(168, 178, 205, .25); border-radius: 4px;
+      background: rgba(9, 11, 20, .9);
+      font-family: system-ui, sans-serif; color: rgba(220, 226, 245, .82);
+    }
+    #about h2 {
+      margin: 0 0 12px; font-size: 14px; letter-spacing: 3px; font-weight: 500;
+      color: rgba(238, 242, 252, .9);
+    }
+    #about p {
+      margin: 0 0 10px; font-size: 12px; line-height: 1.6; letter-spacing: .2px;
+      color: rgba(190, 198, 222, .78);
+    }
+    #about-close {
+      pointer-events: auto; cursor: pointer; margin-top: 8px;
+      font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1.5px;
+      color: rgba(238, 242, 252, .8); background: transparent;
+      border: 1px solid rgba(168, 178, 205, .35); border-radius: 3px;
+      padding: 8px 16px; transition: border-color .2s ease, background .2s ease;
+    }
+    #about-close:hover, #about-close:focus-visible {
+      border-color: rgba(238, 242, 252, .7); background: rgba(238, 242, 252, .06); outline: none;
+    }
   </style>
 </head>
 <body>
@@ -32,6 +117,30 @@
   <div id="title"><span id="title-line">EVERYTHING MUST GO</span><small>a spinning black hole is closing this cosmos</small></div>
   <div id="counter"></div>
   <div id="debug"></div>
+
+  <div id="enter-gate" class="hidden">
+    <div class="gate-content">
+      <h1>EVERYTHING MUST GO</h1>
+      <p class="subtitle">a spinning black hole is closing this cosmos, forever, again</p>
+      <div class="gate-buttons">
+        <button id="enter-sound" class="gate-btn" type="button">Enter with sound</button>
+        <button id="enter-silent" class="gate-btn" type="button">Enter silent</button>
+      </div>
+      <button id="about-link" type="button">about</button>
+    </div>
+  </div>
+
+  <button id="sound-toggle" class="hidden" type="button" aria-label="sound: off" aria-pressed="false">🔈</button>
+
+  <div id="about" class="hidden">
+    <div class="about-content">
+      <h2>ABOUT</h2>
+      <p>Everything Must Go is a procedural cosmos consumed by a spinning black hole, reborn forever — stars, planets, galaxies, and a rare rogue merger, cycling from serene to carnage to true darkness before the next cosmos begins.</p>
+      <p>Both the visuals and the sound are procedurally generated: the score is fully synthesized WebAudio, no samples, driven live by the same cycle that drives the sim.</p>
+      <button id="about-close" type="button">close</button>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
