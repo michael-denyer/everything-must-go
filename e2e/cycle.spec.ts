@@ -188,19 +188,25 @@ test('a rogue merger boosts the hole radius beyond the base cycle curve', async 
 });
 
 test('the title eater consumes a letter within the first cosmos', async ({ page }) => {
-  test.setTimeout(60_000);
+  // Wall-clock budget accounts for the software rasterizer (SwiftShader in CI)
+  // running sim-time at ~0.26x, made heavier by the M3b deep sky (a full-screen
+  // sky plane + galaxies/cluster/pulsar add real fill/raster cost). The eater
+  // cadence is a FRACTION of cycle-progress, so a shorter cycle reaches the same
+  // firing fraction in less sim-time — cycle=45 gives comfortable headroom under
+  // 2-worker contention without changing what this test asserts.
+  test.setTimeout(120_000);
   const errors: string[] = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/?seed=7&cycle=75'); // live, no t-freeze
+  await page.goto('/?seed=7&cycle=45'); // live, no t-freeze
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __emg?: { params: { progress: number } } };
       return w.__emg !== undefined && w.__emg.params.progress > 0.15;
     },
-    { timeout: 45_000 },
+    { timeout: 60_000 },
   );
 
   // Cadence-fraction contract (Task 5): firings land every [0.125, 0.208) of

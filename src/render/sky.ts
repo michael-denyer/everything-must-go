@@ -7,9 +7,12 @@ import { mulberry32 } from '../sim/random';
 
 const TEX_W = 2048;
 const TEX_H = 1024;
-const PLANE_W = 14;
-const PLANE_H = 7;
 const PLANE_DIST = 10;
+// Slight over-fill of the camera frustum so the plane's edges sit outside the
+// view (no visible rectangle), with the fragment vignette hiding the margin.
+// The anchor projection below divides NDC by this same factor so painted
+// nebulae still land at their true screen positions on the larger plane.
+const PLANE_FILL = 1.12;
 
 function makeCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
@@ -94,11 +97,14 @@ function paintBand(ctx: CanvasRenderingContext2D, bandAngle: number, rand: () =>
 function projectToCanvas(
   world: THREE.Vector3,
   camera: THREE.PerspectiveCamera,
+  fill: number,
 ): { x: number; y: number } {
   const ndc = world.clone().project(camera);
+  // Divide NDC by `fill`: the plane spans [-fill, +fill] of the frustum in each
+  // axis, so an anchor at frustum-NDC n sits at canvas (n/fill + 1)/2.
   return {
-    x: ((ndc.x + 1) / 2) * TEX_W,
-    y: ((1 - ndc.y) / 2) * TEX_H,
+    x: ((ndc.x / fill + 1) / 2) * TEX_W,
+    y: ((1 - ndc.y / fill) / 2) * TEX_H,
   };
 }
 
@@ -202,8 +208,10 @@ function paintDecorGalaxy(
 
 function bakeSkyTexture(spec: CosmosSpec, palette: Palette, camera: THREE.PerspectiveCamera): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(TEX_W, TEX_H);
-  ctx.fillStyle = 'rgb(2,2,5)';
-  ctx.fillRect(0, 0, TEX_W, TEX_H);
+  // Transparent canvas — NO opaque background fill. Empty regions stay
+  // transparent so the plane's blank areas composite to the identical scene
+  // background instead of a slightly-off navy rectangle (the visible-panel bug).
+  // Only the band/nebulae/decor content below is painted.
 
   const rand = mulberry32(spec.skySeed);
 
@@ -211,7 +219,7 @@ function bakeSkyTexture(spec: CosmosSpec, palette: Palette, camera: THREE.Perspe
 
   for (const nebula of spec.nebulae) {
     const world = new THREE.Vector3(nebula.x, nebula.y, nebula.z);
-    const { x, y } = projectToCanvas(world, camera);
+    const { x, y } = projectToCanvas(world, camera, PLANE_FILL);
     const nebRand = mulberry32(nebula.seed);
     const radiusPx = TEX_W * 0.09 * nebula.scale * (1.4 + nebRand());
     paintNebula(ctx, x, y, radiusPx, nebula.hueA, nebula.hueB, palette, nebRand);
@@ -246,7 +254,14 @@ const SKY_FRAG = /* glsl */ `
   varying vec2 vUv;
   void main() {
     vec4 tex = texture2D(uTex, vUv);
-    gl_FragColor = vec4(tex.rgb * uFade, tex.a);
+    // Edge vignette: fade alpha toward the plane borders so the boundary never
+    // reads as a hard rectangle, even where baked content reaches an edge.
+    float edge = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x)
+               * smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.88, vUv.y);
+    // Fade BOTH rgb and alpha with the cosmos: at fade->0 the sky goes fully
+    // transparent (NormalBlending shows the uniform background), so the
+    // darkness phase reads black instead of a lit backdrop.
+    gl_FragColor = vec4(tex.rgb * uFade, tex.a * uFade * edge);
   }
 `;
 
@@ -257,7 +272,19 @@ export function createSky(
 ): { object: THREE.Object3D; setParams(p: { fade: number; progress: number }): void; dispose(): void } {
   const texture = bakeSkyTexture(spec, palette, camera);
 
-  const geometry = new THREE.PlaneGeometry(PLANE_W, PLANE_H);
+  // Frustum-fit the plane: size it to (over-)fill the camera's view at the
+  // plane's distance, so it reads as a seamless backdrop rather than a floating
+  // panel. Distance from camera to plane = |camera.position| + PLANE_DIST (the
+  // plane sits PLANE_DIST behind the origin, opposite the camera). PLANE_FILL
+  // over-sizes it slightly; the anchor projection divided NDC by the same
+  // factor, so nebulae still land correctly. Baked once (like the texture) —
+  // resize mid-cycle is left uncorrected, same tradeoff as the parallax note.
+  const camToPlane = camera.position.length() + PLANE_DIST;
+  const frustumH = 2 * camToPlane * Math.tan((camera.fov * Math.PI) / 360);
+  const aspect = camera.aspect && Number.isFinite(camera.aspect) ? camera.aspect : 16 / 9;
+  const planeH = frustumH * PLANE_FILL;
+  const planeW = planeH * aspect;
+  const geometry = new THREE.PlaneGeometry(planeW, planeH);
   const material = new THREE.ShaderMaterial({
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,

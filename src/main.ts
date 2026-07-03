@@ -395,7 +395,13 @@ function frame(now: number): void {
   const p = evalCycle(spec, effT);
   latestPhase = p.phase;
 
-  sky.setParams({ fade: p.fade, progress: p.progress });
+  // Squared fade for the emissive deep sky, matching post.lensing.setFade
+  // below: additive/emissive content through ACES stays visually bright under a
+  // linear fade, so it must be squared to actually reach black by darkness
+  // (t~0.95). Without this the still-lit sky + galaxies keep the frame above
+  // the darkness gate.
+  const darkFade = p.fade * p.fade;
+  sky.setParams({ fade: darkFade, progress: p.progress });
   shootingStars.update(dt);
 
   // Nebula wisp drain: while progress is inside the window, each nebula
@@ -501,6 +507,12 @@ function frame(now: number): void {
 
   for (const b of bodies) {
     if (!b.alive) continue;
+    // Emissive deep-sky bodies (galaxy/cluster/pulsar) dim with the cosmos so
+    // the darkness phase actually goes black — they linger past carnage on
+    // their wider orbits and would otherwise still glow at t=0.95, tripping the
+    // darkness gate. Squared (darkFade), same ACES-emissive reasoning as the sky
+    // and lensing. Lit/silhouette bodies don't implement setFade.
+    b.setFade?.(darkFade);
     b.update(dt, p.gm, p.drag, p.holeR, debris.spawn);
   }
   bodies = bodies.filter((b) => {

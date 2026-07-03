@@ -11,6 +11,7 @@ export interface ClusterBody extends Body {
   readonly kind: 'cluster';
   readonly object: THREE.Points; // point-cloud ball, positioned in world space
   alive: boolean; // false after unit-swallow completes; conductor removes + disposes
+  setFade(fade: number): void; // dims the additive points with the dying cosmos
 }
 
 type SpawnDebris = (
@@ -94,12 +95,13 @@ const CLUSTER_VERT = /* glsl */ `
 const CLUSTER_FRAG = /* glsl */ `
   varying vec3 vColor;
   varying float vBrightness;
+  uniform float uFade;
   void main() {
     vec2 c = gl_PointCoord - 0.5;
     float d = length(c);
     if (d > 0.5) discard;
     float falloff = 1.0 - smoothstep(0.0, 0.5, d);
-    gl_FragColor = vec4(vColor * vBrightness, falloff);
+    gl_FragColor = vec4(vColor * vBrightness * uFade, falloff);
   }
 `;
 
@@ -138,6 +140,7 @@ export function createCluster(spec: ClusterSpec, palette: Palette, gm0: number):
     uniforms: {
       uSwallow: { value: 0 },
       uPointSize: { value: 3.2 },
+      uFade: { value: 1 },
     },
     transparent: true,
     blending: THREE.AdditiveBlending,
@@ -221,6 +224,9 @@ export function createCluster(spec: ClusterSpec, palette: Palette, gm0: number):
         body.alive = false;
         return;
       }
+    },
+    setFade(fade: number): void {
+      (material.uniforms.uFade!.value as number) = fade;
     },
     dispose(): void {
       // Idempotent: the conductor may sweep dead bodies whose dispose already ran.

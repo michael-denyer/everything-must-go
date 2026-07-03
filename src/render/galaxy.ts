@@ -11,6 +11,7 @@ export interface GalaxyBody extends Body {
   readonly kind: 'galaxy';
   readonly object: THREE.Group; // billboard quad, positioned in world space
   alive: boolean; // false after burst; conductor removes + disposes
+  setFade(fade: number): void; // dims the additive glow with the dying cosmos
 }
 
 type SpawnDebris = (
@@ -262,6 +263,12 @@ export function createGalaxy(spec: GalaxySpec, palette: Palette, gm0: number): G
         body.alive = false;
         return;
       }
+    },
+    setFade(fade: number): void {
+      // Additive + transparent: the GL blend multiplies the contribution by
+      // srcAlpha (= opacity * texAlpha), so scaling opacity dims the whole
+      // galaxy toward black as the cosmos fades.
+      material.opacity = fade;
     },
     dispose(): void {
       // Idempotent: the conductor may sweep dead bodies whose dispose already ran.

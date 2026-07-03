@@ -9,6 +9,7 @@ export interface PulsarBody extends Body {
   readonly kind: 'pulsar';
   readonly object: THREE.Group; // strobe point + two beam quads, positioned in world space
   alive: boolean; // false after the CONSUME flash; conductor removes + disposes
+  setFade(fade: number): void; // dims the additive strobe + beams with the dying cosmos
 }
 
 type SpawnDebris = (
@@ -87,10 +88,11 @@ const STROBE_VERT = /* glsl */ `
 
 const STROBE_FRAG = /* glsl */ `
   uniform float uIntensity;
+  uniform float uFade;
   void main() {
     float d = length(gl_PointCoord - 0.5);
     float alpha = smoothstep(0.5, 0.1, d);
-    gl_FragColor = vec4(vec3(1.0) * uIntensity * alpha, alpha);
+    gl_FragColor = vec4(vec3(1.0) * uIntensity * alpha * uFade, alpha);
   }
 `;
 
@@ -111,12 +113,13 @@ const BEAM_VERT = /* glsl */ `
 
 const BEAM_FRAG = /* glsl */ `
   uniform float uIntensity;
+  uniform float uFade;
   varying vec2 vUv;
   void main() {
     float across = abs(vUv.y - 0.5) * 2.0; // 0 at centerline, 1 at edge
     float along = 1.0 - abs(vUv.x - 0.5) * 2.0; // 0 at tips, 1 at center
     float falloff = (1.0 - smoothstep(0.0, 1.0, across)) * mix(0.4, 1.0, along);
-    gl_FragColor = vec4(vec3(0.75, 0.85, 1.0) * uIntensity * falloff, falloff);
+    gl_FragColor = vec4(vec3(0.75, 0.85, 1.0) * uIntensity * falloff * uFade, falloff);
   }
 `;
 
@@ -129,7 +132,7 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
   const pointMaterial = new THREE.ShaderMaterial({
     vertexShader: STROBE_VERT,
     fragmentShader: STROBE_FRAG,
-    uniforms: { uIntensity: { value: STROBE_HIGH } },
+    uniforms: { uIntensity: { value: STROBE_HIGH }, uFade: { value: 1 } },
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -146,7 +149,7 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
   const beamMaterialA = new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: BEAM_FRAG,
-    uniforms: { uIntensity: { value: STROBE_HIGH } },
+    uniforms: { uIntensity: { value: STROBE_HIGH }, uFade: { value: 1 } },
     transparent: true,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
@@ -156,7 +159,7 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
   const beamMaterialB = new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: BEAM_FRAG,
-    uniforms: { uIntensity: { value: STROBE_HIGH } },
+    uniforms: { uIntensity: { value: STROBE_HIGH }, uFade: { value: 1 } },
     transparent: true,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
@@ -275,6 +278,11 @@ export function createPulsar(spec: PulsarSpec, gm0: number): PulsarBody {
         body.alive = false;
         return;
       }
+    },
+    setFade(fade: number): void {
+      (pointMaterial.uniforms.uFade!.value as number) = fade;
+      (beamMaterialA.uniforms.uFade!.value as number) = fade;
+      (beamMaterialB.uniforms.uFade!.value as number) = fade;
     },
     dispose(): void {
       // Idempotent: the conductor may sweep dead bodies whose dispose already ran.
