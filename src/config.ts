@@ -34,6 +34,38 @@ export const BLOOM_THRESHOLD = 1.5;
 // before ACES; pixel gates were re-run at this value.
 export const EXPOSURE = 0.85;
 
+// Disk-only emissive scale ("still way too bright — it hides all the cool
+// detail", 2026-07-03). The disk is ~1M additive sprites; hundreds overlap per
+// pixel near the core, summing to tens of HDR units that clip flat white under
+// ACES at any exposure. Scaling the per-sprite emissive compresses that sum
+// back under the tonemap shoulder WITHOUT dimming planets, stars, or cast —
+// which a global EXPOSURE cut would. MD feel-tunes this on the live view.
+export const DISK_INTENSITY = 0.12;
+
+// Relativistic shading (2026-07-03 physics pass, MD-requested). LIGHT_SPEED is
+// c in scene units, chosen so the inner-edge Keplerian speed (√(GM/DISK_INNER)
+// ≈ 1.12) lands at β ≈ 0.55 — the regime of gas near a real ISCO. Emissive is
+// multiplied by δ^BEAMING_EXP with δ = 1/(1 − β_los); exponent 3 is the
+// bolometric relativistic-beaming law, and it produces the one-sided crescent
+// of every real black-hole image. GRAV_REDSHIFT_ON gates the √(1 − rs/r)
+// dimming/cooling of the inner edge (rs derived from the shadow radius: the
+// photon-capture shadow sits at √27/2 ≈ 2.6 rs). KERR_SPIN (0..1) shifts the
+// shadow + photon ring off-center toward the receding side and skews ring
+// brightness — a spinning-hole fake, not a Kerr geodesic solve.
+export const LIGHT_SPEED = 2.0;
+export const BEAMING_EXP = 3.0;
+export const KERR_SPIN = 0.45;
+
+// ISCO plunge band. Inside the innermost stable circular orbit no bound orbit
+// exists: gas loses rotational support and plunges radially to the horizon,
+// leaving a lower-density (darker) gap between the bright disk edge and the
+// photon ring — visible in every real accretion image. ISCO_FACTOR sets the
+// band's outer edge as a multiple of the sim inner radius (uInnerR); below it,
+// the velocity shader fades the tangential component to zero toward the center
+// so support vanishes smoothly (no discontinuity at the band edge, no energy
+// added — it can only thin the disk, never destabilize it).
+export const ISCO_FACTOR = 1.35;
+
 export const MAX_DT = 1 / 30;
 
 // Cursor well: radius and pull strength of the gas disk's response to pointer

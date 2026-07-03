@@ -1,7 +1,7 @@
 // src/sim/gpuSim.ts
 import * as THREE from 'three';
 import { GPUComputationRenderer, type Variable } from 'three/addons/misc/GPUComputationRenderer.js';
-import { DRAG_BASE, WELL_RADIUS } from '../config';
+import { DRAG_BASE, ISCO_FACTOR, WELL_RADIUS } from '../config';
 import { seedDisk, type DiskOpts } from './diskSeeder';
 
 const SIM_COMMON = /* glsl */ `
@@ -112,6 +112,21 @@ const VELOCITY_SHADER = /* glsl */ `
         next += dir * (uWell.w * uDt / (d2 + 0.006));
       }
     }
+    // ISCO plunge: below uInnerR*ISCO_FACTOR, fade the tangential (orbital)
+    // velocity toward zero as r approaches the center, leaving radial infall
+    // intact. Gas loses support and plunges, thinning the inner edge into a
+    // darker gap. This is a scale-down of next (never an early return and
+    // never energy-adding), so it lies outside the respawn/rogue park branches
+    // and cannot desync the pos/vel pair — the position shader integrates
+    // whatever velocity lands here, as it always does on the normal path.
+    float rp = length(pos.xz);
+    float iscoR = uInnerR * ${'$'}{iscoFactor};
+    if (rp < iscoR && rp > 1e-4) {
+      vec3 radial = vec3(pos.x, 0.0, pos.z) / rp;
+      vec3 vRad = radial * dot(next, radial);
+      float support = rp / iscoR; // 1 at the band edge -> 0 at the center
+      next = vRad + (next - vRad) * support;
+    }
     gl_FragColor = vec4(next, 0.0);
   }
 `;
@@ -123,7 +138,8 @@ function buildShader(template: string): string {
   // a decimal point guarantees a float literal regardless of the value.
   return template
     .replace('${common}', SIM_COMMON)
-    .replace('${wellRadiusSq}', (WELL_RADIUS * WELL_RADIUS).toFixed(6));
+    .replace('${wellRadiusSq}', (WELL_RADIUS * WELL_RADIUS).toFixed(6))
+    .replace('${iscoFactor}', ISCO_FACTOR.toFixed(6));
 }
 
 export class GpuSim {
