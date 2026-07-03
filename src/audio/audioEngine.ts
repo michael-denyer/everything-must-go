@@ -35,6 +35,13 @@ interface Voice {
 export function createAudioEngine(): AudioEngine {
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
+  // Resolution bus: a second output path parallel to `master`, feeding the same
+  // analyser -> destination. The rebirth swell routes through HERE, not master,
+  // because master is held at ~0 by the cycle silence contract (fade^2 -> 0)
+  // through darkness/rebirth — so a swell on master would be muted exactly when
+  // it should sound. This bus respects the enabled (mute) flag but NOT the
+  // cycle fade, so the rebirth resolution is audible whenever it fires.
+  let resolution: GainNode | null = null;
   let analyser: AnalyserNode | null = null;
   let analyserBuf: Uint8Array | null = null;
 
@@ -49,6 +56,25 @@ export function createAudioEngine(): AudioEngine {
   let started = false;
   let enabled = true;
   let lastMasterLevel = 0; // last scoreGains().master seen, for setEnabled's ramp target
+
+  // Reset all graph state to the pre-unlock (no-context) condition. Called both
+  // on dispose and when unlock() fails partway through building the graph — a
+  // half-built graph left in place would double its oscillators on the next
+  // unlock() retry (makeDetunedVoice/buildGraph push into oscillators[]).
+  function resetState(): void {
+    ctx = null;
+    master = null;
+    resolution = null;
+    analyser = null;
+    analyserBuf = null;
+    drone = null;
+    pad = null;
+    tension = null;
+    sub = null;
+    chirp = null;
+    oscillators.length = 0;
+    started = false;
+  }
 
   function getCtx(): AudioContext {
     if (!ctx) throw new Error('no audio context');
@@ -94,6 +120,12 @@ export function createAudioEngine(): AudioEngine {
     analyserBuf = new Uint8Array(analyser.fftSize);
     master.connect(analyser);
     analyser.connect(ctx.destination);
+
+    // Resolution bus (see the declaration above): parallel to master, gated only
+    // by the enabled/mute flag, feeding the same analyser -> destination.
+    resolution = ctx.createGain();
+    resolution.gain.value = enabled ? 1 : 0;
+    resolution.connect(analyser);
 
     drone = makeDetunedVoice(ctx, master, DRONE_FREQS, 'sawtooth', 500);
     pad = makeDetunedVoice(ctx, master, PAD_FREQS, 'triangle', 900);
@@ -147,8 +179,14 @@ export function createAudioEngine(): AudioEngine {
         startOscillators();
         void getCtx().resume();
       } catch {
-        // construction/resume failed — stay silent, no context, no throw
-        ctx = null;
+        // construction/resume failed — fully reset so a retry rebuilds cleanly
+        // (a half-built graph would double its oscillators on the next unlock).
+        try {
+          void ctx?.close();
+        } catch {
+          // ignore
+        }
+        resetState();
       }
     },
 
@@ -175,7 +213,7 @@ export function createAudioEngine(): AudioEngine {
     },
 
     hit(kind: 'break' | 'galaxyDeath' | 'rebirth'): void {
-      if (!ctx || !master) return;
+      if (!ctx || !master || !resolution) return;
       try {
         const audioCtx = ctx;
         const now = audioCtx.currentTime;
@@ -238,7 +276,7 @@ export function createAudioEngine(): AudioEngine {
               g.gain.linearRampToValueAtTime(0.001 + env * 0.18, now + t);
             }
             osc.connect(g);
-            g.connect(master);
+            g.connect(resolution); // resolution bus, not master — audible through the cycle silence
             osc.start(now);
             osc.stop(now + REBIRTH_DURATION + 0.05);
           }
@@ -252,6 +290,7 @@ export function createAudioEngine(): AudioEngine {
       enabled = on;
       if (!ctx || !master) return;
       safeSetTarget(master.gain, on ? lastMasterLevel : 0);
+      if (resolution) safeSetTarget(resolution.gain, on ? 1 : 0);
     },
 
     suspend(): void {
@@ -301,17 +340,7 @@ export function createAudioEngine(): AudioEngine {
       } catch {
         // no-op
       } finally {
-        ctx = null;
-        master = null;
-        analyser = null;
-        analyserBuf = null;
-        drone = null;
-        pad = null;
-        tension = null;
-        sub = null;
-        chirp = null;
-        oscillators.length = 0;
-        started = false;
+        resetState();
       }
     },
   };

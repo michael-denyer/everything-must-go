@@ -41,6 +41,11 @@ export function createEnterGate(opts: {
   const aboutClose = document.getElementById('about-close');
   const soundToggle = document.getElementById('sound-toggle');
 
+  // Current sound state as reflected by the corner toggle. Kept in sync by
+  // enter() so the toggle's first click after entry flips from the true state
+  // (entering with sound then clicking the toggle must MUTE, not re-enable).
+  let toggledOn = false;
+
   function applyToggleGlyph(on: boolean): void {
     if (soundToggle) {
       soundToggle.textContent = on ? '🔊' : '🔈';
@@ -69,6 +74,7 @@ export function createEnterGate(opts: {
     writeStoredPreference(withSound);
     hideGate();
     revealToggle();
+    toggledOn = withSound; // sync the toggle state so the first mute-click isn't inverted
     applyToggleGlyph(withSound);
     opts.onEnter(withSound);
   }
@@ -81,7 +87,6 @@ export function createEnterGate(opts: {
   });
   aboutClose?.addEventListener('click', () => closeAbout());
 
-  let toggledOn = false;
   soundToggle?.addEventListener('click', () => {
     toggledOn = !toggledOn;
     writeStoredPreference(toggledOn);
