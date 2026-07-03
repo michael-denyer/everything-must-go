@@ -18,13 +18,15 @@ npm run e2e        # smoke test (Playwright, builds first)
 URL controls: `?seed=<n>` picks the cosmos, `?cycle=<seconds>` compresses the cycle,
 `?t=<0..1>` freezes progress at a point in the arc, `?debug` shows fps and phase.
 
+Move to stir the gas, click during the fall to feed it something.
+
 ## Status
 
 - [x] Milestone 1: money shot — GPU disk, lensed shadow + photon ring + fold, bloom
 - [x] Milestone 2: the consumption cycle and rebirth
 - [x] Milestone 3a: solar system — planets, moons, rings, belt, comets, ring halo
 - [ ] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
-- [ ] Milestone 4: cursor well, silhouette cast, rogue-hole merger
+- [x] Milestone 4: cursor well, silhouette cast, rogue-hole merger (built out of order, ahead of 3b)
 - [ ] Milestone 5: adaptive score and enter gate
 - [ ] Milestone 6: quality tiers, mobile, deploy
 
