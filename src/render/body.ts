@@ -1,7 +1,7 @@
 // src/render/body.ts
 import type * as THREE from 'three';
 
-export type BodyKind = 'planet' | 'comet' | 'cast';
+export type BodyKind = 'planet' | 'comet' | 'cast' | 'galaxy' | 'cluster' | 'pulsar';
 
 export interface Body {
   readonly kind: BodyKind;

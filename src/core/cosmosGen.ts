@@ -21,6 +21,38 @@ export interface PlanetSpec {
   texSeed: number;
 }
 
+export interface NebulaSpec {
+  x: number;
+  z: number;
+  y: number;
+  scale: number;
+  hueA: number;
+  hueB: number;
+  seed: number;
+}
+
+export interface GalaxySpec {
+  orbitR: number;
+  size: number;
+  hueIdx: number;
+  phase: number;
+  seed: number;
+}
+
+export interface ClusterSpec {
+  orbitR: number;
+  size: number;
+  pointCount: number;
+  phase: number;
+  seed: number;
+}
+
+export interface PulsarSpec {
+  present: boolean;
+  orbitR: number;
+  phase: number;
+}
+
 export interface CosmosSpec {
   seed: number;
   cycleSeconds: number;
@@ -42,6 +74,14 @@ export interface CosmosSpec {
   castSeed: number;
   castCadence: number;
   cometSeeds: number[];
+  nebulae: NebulaSpec[];
+  galaxies: GalaxySpec[];
+  decorGalaxyCount: number;
+  clusters: ClusterSpec[];
+  pulsar: PulsarSpec;
+  bandAngle: number;
+  skySeed: number;
+  shootingStarSeed: number;
 }
 
 export function generateCosmos(seed: number): CosmosSpec {
@@ -156,6 +196,67 @@ export function generateCosmos(seed: number): CosmosSpec {
     cometSeeds.push(Math.floor(rand() * 2 ** 31));
   }
 
+  // --- Milestone 3b additions: appended strictly after the cometSeeds loop
+  // above. Same discipline as the M4 block: counts are rolled before their
+  // loops, every per-item draw is unconditional (fixed draw count per item
+  // regardless of what's rolled), and the pulsar's fields are drawn even
+  // when it turns out absent — so the draw count downstream never branches
+  // on any roster roll made here. ---
+
+  // Nebulae: count first, then a fixed 7-draw sequence per nebula (angle,
+  // radius, y, scale, hueA, hueB, seed).
+  const nebulaCount = 3 + Math.floor(rand() * 3); // 3-5
+  const nebulae: NebulaSpec[] = [];
+  for (let i = 0; i < nebulaCount; i++) {
+    const angle = rand() * Math.PI * 2;
+    const radius = 1.2 + rand() * (2.2 - 1.2);
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const y = -0.25 + rand() * (0.35 - -0.25);
+    const scale = 0.35 + rand() * (0.7 - 0.35);
+    const hueA = Math.floor(rand() * 1000);
+    const hueB = Math.floor(rand() * 1000);
+    const nebSeed = Math.floor(rand() * 2 ** 31);
+    nebulae.push({ x, z, y, scale, hueA, hueB, seed: nebSeed });
+  }
+
+  // Galaxies: exactly 2 dynamic satellites — no count draw, a fixed 4-draw
+  // sequence per galaxy (orbitR, size, hueIdx, phase) plus a seed draw.
+  const galaxies: GalaxySpec[] = [];
+  for (let i = 0; i < 2; i++) {
+    const orbitR = 1.9 + rand() * (2.3 - 1.9);
+    const size = 0.1 + rand() * 0.15;
+    const hueIdx = Math.floor(rand() * 1000);
+    const phase = rand() * Math.PI * 2;
+    const galSeed = Math.floor(rand() * 2 ** 31);
+    galaxies.push({ orbitR, size, hueIdx, phase, seed: galSeed });
+  }
+
+  const decorGalaxyCount = 3 + Math.floor(rand() * 3); // 3-5
+
+  // Clusters: count first (0-2), then a fixed 5-draw sequence per cluster
+  // (orbitR, pointCount, size, phase, seed).
+  const clusterCount = Math.floor(rand() * 3); // 0-2
+  const clusters: ClusterSpec[] = [];
+  for (let i = 0; i < clusterCount; i++) {
+    const orbitR = 1.3 + rand() * (1.7 - 1.3);
+    const pointCount = 220 + Math.floor(rand() * (320 - 220 + 1));
+    const size = 0.09 + rand() * (0.13 - 0.09);
+    const phase = rand() * Math.PI * 2;
+    const clSeed = Math.floor(rand() * 2 ** 31);
+    clusters.push({ orbitR, pointCount, size, phase, seed: clSeed });
+  }
+
+  // Pulsar: present/orbitR/phase are all drawn unconditionally, even when
+  // present is false — mirrors the rogue's present/spawnP/mergeP discipline.
+  const pulsarPresent = rand() < 0.6;
+  const pulsarOrbitR = 0.7 + rand() * (0.9 - 0.7);
+  const pulsarPhase = rand() * Math.PI * 2;
+
+  const bandAngle = rand() * Math.PI * 2;
+  const skySeed = Math.floor(rand() * 2 ** 31);
+  const shootingStarSeed = Math.floor(rand() * 2 ** 31);
+
   return {
     seed,
     cycleSeconds,
@@ -177,5 +278,13 @@ export function generateCosmos(seed: number): CosmosSpec {
     castSeed,
     castCadence,
     cometSeeds,
+    nebulae,
+    galaxies,
+    decorGalaxyCount,
+    clusters,
+    pulsar: { present: pulsarPresent, orbitR: pulsarOrbitR, phase: pulsarPhase },
+    bandAngle,
+    skySeed,
+    shootingStarSeed,
   };
 }

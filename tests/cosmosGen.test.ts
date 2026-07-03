@@ -117,4 +117,79 @@ describe('generateCosmos', () => {
       }
     }
   });
+
+  it('generates a ranged deep-sky roster', () => {
+    const TAU = Math.PI * 2;
+    let pulsarPresent = 0;
+    for (let s = 0; s < 200; s++) {
+      const c = generateCosmos(s);
+
+      expect(c.nebulae.length).toBeGreaterThanOrEqual(3);
+      expect(c.nebulae.length).toBeLessThanOrEqual(5);
+      for (const n of c.nebulae) {
+        const r = Math.sqrt(n.x * n.x + n.z * n.z);
+        expect(r).toBeGreaterThanOrEqual(1.2);
+        expect(r).toBeLessThanOrEqual(2.2);
+        expect(n.y).toBeGreaterThanOrEqual(-0.25);
+        expect(n.y).toBeLessThanOrEqual(0.35);
+        expect(n.scale).toBeGreaterThanOrEqual(0.35);
+        expect(n.scale).toBeLessThanOrEqual(0.7);
+        expect(Number.isInteger(n.hueA)).toBe(true);
+        expect(n.hueA).toBeGreaterThanOrEqual(0);
+        expect(Number.isInteger(n.hueB)).toBe(true);
+        expect(n.hueB).toBeGreaterThanOrEqual(0);
+        expect(Number.isInteger(n.seed)).toBe(true);
+        expect(n.seed).toBeGreaterThanOrEqual(0);
+      }
+
+      expect(c.galaxies.length).toBe(2);
+      for (const g of c.galaxies) {
+        expect(g.orbitR).toBeGreaterThanOrEqual(1.9);
+        expect(g.orbitR).toBeLessThanOrEqual(2.3);
+        expect(g.size).toBeGreaterThan(0);
+        expect(Number.isInteger(g.hueIdx)).toBe(true);
+        expect(g.hueIdx).toBeGreaterThanOrEqual(0);
+        expect(g.phase).toBeGreaterThanOrEqual(0);
+        expect(g.phase).toBeLessThan(TAU);
+        expect(Number.isInteger(g.seed)).toBe(true);
+      }
+
+      expect(Number.isInteger(c.decorGalaxyCount)).toBe(true);
+      expect(c.decorGalaxyCount).toBeGreaterThanOrEqual(3);
+      expect(c.decorGalaxyCount).toBeLessThanOrEqual(5);
+
+      expect(c.clusters.length).toBeGreaterThanOrEqual(0);
+      expect(c.clusters.length).toBeLessThanOrEqual(2);
+      for (const cl of c.clusters) {
+        expect(cl.orbitR).toBeGreaterThanOrEqual(1.3);
+        expect(cl.orbitR).toBeLessThanOrEqual(1.7);
+        expect(Number.isInteger(cl.pointCount)).toBe(true);
+        expect(cl.pointCount).toBeGreaterThanOrEqual(220);
+        expect(cl.pointCount).toBeLessThanOrEqual(320);
+        expect(cl.size).toBeGreaterThanOrEqual(0.09);
+        expect(cl.size).toBeLessThanOrEqual(0.13);
+        expect(cl.phase).toBeGreaterThanOrEqual(0);
+        expect(cl.phase).toBeLessThan(TAU);
+        expect(Number.isInteger(cl.seed)).toBe(true);
+      }
+
+      // pulsar fields are drawn unconditionally, even when present is false.
+      expect(typeof c.pulsar.present).toBe('boolean');
+      expect(c.pulsar.orbitR).toBeGreaterThanOrEqual(0.7);
+      expect(c.pulsar.orbitR).toBeLessThanOrEqual(0.9);
+      expect(c.pulsar.phase).toBeGreaterThanOrEqual(0);
+      expect(c.pulsar.phase).toBeLessThan(TAU);
+      if (c.pulsar.present) pulsarPresent++;
+
+      expect(c.bandAngle).toBeGreaterThanOrEqual(0);
+      expect(c.bandAngle).toBeLessThan(TAU);
+      expect(Number.isInteger(c.skySeed)).toBe(true);
+      expect(c.skySeed).toBeGreaterThanOrEqual(0);
+      expect(Number.isInteger(c.shootingStarSeed)).toBe(true);
+      expect(c.shootingStarSeed).toBeGreaterThanOrEqual(0);
+    }
+    const rate = pulsarPresent / 200;
+    expect(rate).toBeGreaterThan(0.45);
+    expect(rate).toBeLessThan(0.75);
+  });
 });

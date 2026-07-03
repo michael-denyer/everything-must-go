@@ -194,7 +194,12 @@ function seedCosmos(seed: number): void {
   rogueRadius = 0;
 
   if (!titleEater) {
-    titleEater = createTitleEater(titleLineEl, [0.125, 0.208], spec.castSeed ^ 0x9e3779b9);
+    // Symmetry requirement: this initial seed MUST use the same castSeed ^
+    // constant as titleEater.reset() below (see titleEater.ts), so a reborn
+    // cosmos's eater sequence is bit-identical to a fresh one constructed
+    // with the same castSeed — otherwise "reset" would silently diverge
+    // from "create" for the very first cosmos of a session.
+    titleEater = createTitleEater(titleLineEl, [0.125, 0.208], spec.castSeed ^ 0x51ed);
   } else {
     titleEater.reset(spec.castSeed);
   }

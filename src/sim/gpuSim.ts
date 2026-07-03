@@ -117,7 +117,13 @@ const VELOCITY_SHADER = /* glsl */ `
 `;
 
 function buildShader(template: string): string {
-  return template.replace('${common}', SIM_COMMON).replace('${wellRadiusSq}', `${WELL_RADIUS * WELL_RADIUS}`);
+  // .toFixed(6): if WELL_RADIUS² ever lands on a whole number, plain string
+  // interpolation would emit a GLSL *int* literal (e.g. "4") into a float
+  // comparison (`d2 < 4`), which fails to compile under strict GLSL. Forcing
+  // a decimal point guarantees a float literal regardless of the value.
+  return template
+    .replace('${common}', SIM_COMMON)
+    .replace('${wellRadiusSq}', (WELL_RADIUS * WELL_RADIUS).toFixed(6));
 }
 
 export class GpuSim {
