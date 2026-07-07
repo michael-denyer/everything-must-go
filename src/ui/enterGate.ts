@@ -31,7 +31,6 @@ export function createEnterGate(opts: {
 }): {
   shouldSkip(): boolean;
   showIfNeeded(): void;
-  setSoundState(on: boolean): void;
 } {
   const gate = document.getElementById('enter-gate');
   const enterSoundBtn = document.getElementById('enter-sound');
@@ -122,10 +121,6 @@ export function createEnterGate(opts: {
         enterSilentBtn?.classList.add('preferred');
       }
       gate?.classList.remove('hidden');
-    },
-    setSoundState(on: boolean): void {
-      toggledOn = on;
-      applyToggleGlyph(on);
     },
   };
 }

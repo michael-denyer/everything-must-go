@@ -12,7 +12,7 @@
 // Every method is a safe no-op before unlock() (or where AudioContext is
 // unavailable) and must never throw — the graceful-absence contract.
 
-import { chirpFrequency, scoreGains, type CycleAudioParams } from './score';
+import { chirpFrequency, masterGain, type CycleAudioParams } from './score';
 import {
   STEPS_PER_BAR,
   bassHit,
@@ -54,7 +54,7 @@ export function createAudioEngine(): AudioEngine {
   let started = false;
   let enabled = true;
   let intensity = 0; // cycle progress, drives layer gating + tempo
-  let masterTarget = 0; // last scoreGains().master, for setEnabled's ramp
+  let masterTarget = 0; // last masterGain(p), for setEnabled's ramp
 
   let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
   let currentStep = 0;
@@ -357,7 +357,7 @@ export function createAudioEngine(): AudioEngine {
       if (!ctx || !master || !chirp) return;
       try {
         intensity = p.progress < 0 ? 0 : p.progress > 1 ? 1 : p.progress;
-        masterTarget = scoreGains(p).master; // = fade^2 (silence gate)
+        masterTarget = masterGain(p); // = fade^2 (silence gate)
         safeSetTarget(master.gain, enabled ? masterTarget : 0);
         if (p.rogueActive) {
           safeSetTarget(chirp.osc.frequency, chirpFrequency(p.rogueProgress));
