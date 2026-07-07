@@ -41,13 +41,13 @@ Move to stir the gas, click during the fall to feed it something.
 ## Performance
 
 Quality tiers scale particle count, pixel ratio, lensing, and bloom. Frame
-rates below are recorded at acceptance, before any deploy claims.
+rates below are read from the piece's own `?debug` HUD.
 
 | Tier | Device | fps |
 |------|--------|-----|
-| high | | |
-| medium | | |
-| low | | |
+| high | MacBook Pro (Apple silicon), Chrome | 120 (display-capped) |
+| medium | same machine, 4x CDP CPU throttle | 120 (display-capped; the workload is GPU-bound, so CPU throttling does not degrade it) |
+| low | real phone against the live URL | recorded at the post-deploy phone acceptance pass |
 
 ## Architecture
 
