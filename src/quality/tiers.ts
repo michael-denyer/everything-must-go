@@ -34,7 +34,9 @@ export interface ProbeInputs {
   userAgent: string;
 }
 
-const SOFTWARE_RENDERER = /swiftshader|llvmpipe|software/i;
+// "basic render" catches Windows WARP ("Microsoft Basic Render Driver"), the
+// software rasterizer ANGLE falls back to when there is no usable GPU.
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|software|basic render/i;
 const MOBILE_UA = /Android|iPhone|iPad|Mobile/;
 const INTEL_INTEGRATED = /Intel/;
 const INTEL_INTEGRATED_FAMILY = /HD|Iris/;

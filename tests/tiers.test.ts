@@ -54,6 +54,7 @@ describe('chooseInitialTier', () => {
       'Google SwiftShader',
       'Microsoft Software Renderer',
       'SWIFTSHADER',
+      'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)',
     ]) {
       expect(chooseInitialTier({ rendererString, userAgent: DESKTOP_UA })).toBe('low');
     }
