@@ -16,7 +16,7 @@ Design spec: [.planning/superpowers/specs/2026-07-02-everything-must-go-design.m
 npm install
 npm run dev        # http://localhost:5173 (?debug for fps, ?seed=n)
 npm test           # unit tests (vitest)
-npm run e2e        # smoke test (Playwright, builds first)
+npm run e2e        # full e2e suite (Playwright, builds first)
 ```
 
 URL controls: `?seed=<n>` picks the cosmos, `?cycle=<seconds>` compresses the cycle,
@@ -31,7 +31,7 @@ Move to stir the gas, click during the fall to feed it something.
 - [x] Milestone 3a: solar system — planets, moons, rings, belt, comets, ring halo
 - [x] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
 - [x] Milestone 4: cursor well, silhouette cast, rogue-hole merger (built out of order, ahead of 3b)
-- [ ] Milestone 5: adaptive score and enter gate
+- [x] Milestone 5: adaptive score and enter gate — fully synthesized WebAudio score driven by cycle progress, behind an enter gate offering sound or silence
 - [ ] Milestone 6: quality tiers, mobile, deploy
 
 ## Architecture

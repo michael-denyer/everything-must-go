@@ -21,6 +21,9 @@ import { createPulsar } from './render/pulsar';
 import { createShootingStars } from './render/shootingStars';
 import type { Body } from './render/body';
 import { createTitleEater } from './ui/titleEater';
+import { createAudioEngine } from './audio/audioEngine';
+import { createEnterGate } from './ui/enterGate';
+import type { CycleAudioParams } from './audio/score';
 import castManifest from './assets/cast/manifest.json';
 import whaleUrl from './assets/cast/whale.png';
 import pianoUrl from './assets/cast/piano.png';
@@ -345,7 +348,9 @@ function updatePointer(clientX: number, clientY: number): number | null {
 
 function isUiElement(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest('a, button, #debug, #counter') !== null;
+  // #enter-gate/#about included so a click on the overlay background (not a
+  // button) can't fall through to the feeding raycast while the gate is up.
+  return target.closest('a, button, #debug, #counter, #enter-gate, #about') !== null;
 }
 
 function onPointerMove(e: PointerEvent): void {
@@ -364,9 +369,32 @@ function onPointerDown(e: PointerEvent): void {
 addEventListener('pointermove', onPointerMove);
 addEventListener('pointerdown', onPointerDown);
 
+// ---- Audio + enter gate: audio reads core state one-directionally (per the
+// determinism boundary in the plan) — it never feeds back into sim/visual
+// state. The gate is skipped for programmatic/dev entries (?seed/?t/?debug),
+// which keeps every existing e2e on the silent, gate-free path. A bare ?cycle
+// deliberately KEEPS the gate (bbd5120) so a short-cycle audition can choose
+// sound.
+const audio = createAudioEngine();
+const gate = createEnterGate({
+  onEnter(withSound: boolean): void {
+    if (withSound) audio.unlock();
+    audio.setEnabled(withSound);
+  },
+  onToggleSound(on: boolean): void {
+    if (on) audio.unlock();
+    audio.setEnabled(on);
+  },
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) audio.suspend();
+  else audio.resume();
+});
+
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
 const post = createPostChain(renderer, scene, camera);
 post.lensingUpdate(camera, innerWidth, innerHeight, SHADOW_R);
+gate.showIfNeeded();
 
 function onResize(): void {
   camera.aspect = innerWidth / innerHeight;
@@ -388,6 +416,7 @@ function frame(now: number): void {
   if (!Number.isFinite(tFreeze) && cycleT >= spec.cycleSeconds) {
     flashDecay = 1;
     seedCosmos(spec.seed + 1);
+    audio.hit('rebirth');
   }
   const effT = Number.isFinite(tFreeze)
     ? Math.min(Math.max(tFreeze, 0), 1) * spec.cycleSeconds
@@ -467,6 +496,7 @@ function frame(now: number): void {
   // Rogue visual: deterministic inward drift from spawn radius to the hole,
   // arriving at merge time. No integration — position is a pure function of
   // (spec, p.progress).
+  let rogueProgress = 0; // normalized [spawnP, mergeP] position, reused below for the audio chirp
   if (p.rogueActive) {
     if (!rogueVisual) {
       rogueVisual = createRogueVisual();
@@ -477,6 +507,7 @@ function frame(now: number): void {
     // window; angle advances at a fixed local rate over that same window.
     const { spawnP, mergeP } = spec.rogue;
     const t = (p.progress - spawnP) / (mergeP - spawnP);
+    rogueProgress = Math.min(1, Math.max(0, t));
     const radius = ROGUE_SPAWN_R + (p.holeR - ROGUE_SPAWN_R) * t;
     const angle = (spawnP + t * (mergeP - spawnP)) * ROGUE_ANGULAR_RATE * Math.PI * 2;
     rogueX = radius * Math.cos(angle);
@@ -495,6 +526,18 @@ function frame(now: number): void {
       rogueVisual = null;
     }
   }
+
+  // Score follows the cosmos, unconditionally every frame: the engine needs
+  // fresh params even while silent/no-context so a later unlock/re-enable
+  // restores the correct level (setCycle no-ops internally with no context).
+  const audioParams: CycleAudioParams = {
+    progress: p.progress,
+    phase: p.phase,
+    fade: p.fade,
+    rogueActive: p.rogueActive,
+    rogueProgress,
+  };
+  audio.setCycle(audioParams);
 
   // Contract with gpuSim.ts SIM_COMMON respawn margins: effective cull radius here
   // is holeR*1.143 (1.27 * 0.9 needsRespawn threshold); cosmosGen keeps diskInner0
@@ -519,6 +562,12 @@ function frame(now: number): void {
   bodies = bodies.filter((b) => {
     if (b.alive) return true;
     scene.remove(b.object);
+    // A body's death registers as a percussion hit only in decay/carnage —
+    // there shouldn't be deaths in serene/darkness anyway, but phase-gate for
+    // safety per the plan's contract (no hits outside decay/carnage).
+    if (p.phase === 'decay' || p.phase === 'carnage') {
+      audio.hit(b.kind === 'galaxy' || b.kind === 'cluster' ? 'galaxyDeath' : 'break');
+    }
     // Pruned bodies stay in `disposables` (pushed at construction, swept only
     // on the next seedCosmos()) so dispose() runs again there. Safe only
     // because dispose() is idempotent by design — guards live in planet.ts
