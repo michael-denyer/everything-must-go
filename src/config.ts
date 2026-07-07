@@ -77,3 +77,14 @@ export const MAX_DT = 1 / 30;
 // the milestone's tactile sign-off).
 export const WELL_RADIUS = 0.5;
 export const WELL_STRENGTH = 0.05;
+
+// Quality-tier thresholds (M6 plan, "Probe & downgrade thresholds"). The fps
+// probe samples for PROBE_SECONDS behind the enter gate; a median below
+// PROBE_MIN_FPS drops one tier before entry. After entry, fps below
+// DOWNGRADE_FPS sustained for DOWNGRADE_SUSTAIN_SECONDS of accumulated frame
+// time drops one tier (any frame at/above the threshold resets the clock).
+// Downgrade-only: the piece never upgrades mid-cycle.
+export const PROBE_SECONDS = 3;
+export const PROBE_MIN_FPS = 30;
+export const DOWNGRADE_FPS = 24;
+export const DOWNGRADE_SUSTAIN_SECONDS = 5;
