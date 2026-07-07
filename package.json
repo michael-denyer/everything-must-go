@@ -12,7 +12,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "three": "^0.172.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
