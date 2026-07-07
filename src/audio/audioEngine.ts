@@ -77,6 +77,22 @@ export function createAudioEngine(): AudioEngine {
     nextStepTime = 0;
   }
 
+  // Generated impulse response for the hall reverb: decaying stereo noise.
+  // Audio is exempt from the seed-determinism contract (one-shot noise bursts
+  // already use Math.random), so an unseeded impulse is fine.
+  function makeImpulse(audioCtx: AudioContext, seconds: number, decay: number): AudioBuffer {
+    const rate = audioCtx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * seconds));
+    const buf = audioCtx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+      }
+    }
+    return buf;
+  }
+
   function buildGraph(): void {
     if (!ctx) return;
     const compressor = ctx.createDynamicsCompressor();
@@ -94,14 +110,27 @@ export function createAudioEngine(): AudioEngine {
     compressor.connect(an);
     an.connect(ctx.destination);
 
+    // Hall reverb on a parallel wet path: dry oscillators are the "old MIDI
+    // synth" tell (MD, 2026-07-03) — a hall around them is the cheapest large
+    // timbre win short of sampled instruments. Both buses send into it; the
+    // wet level rides into the same compressor as the dry signal.
+    const convolver = ctx.createConvolver();
+    convolver.buffer = makeImpulse(ctx, 3.2, 2.2);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.45;
+    convolver.connect(wet);
+    wet.connect(compressor);
+
     const masterGain = ctx.createGain();
     masterGain.gain.value = 0;
     masterGain.connect(compressor);
+    masterGain.connect(convolver);
     master = masterGain;
 
     const resGain = ctx.createGain(); // parallel to master, not cycle-faded
     resGain.gain.value = enabled ? 1 : 0;
     resGain.connect(compressor);
+    resGain.connect(convolver);
     resolution = resGain;
 
     const chirpOsc = ctx.createOscillator();
