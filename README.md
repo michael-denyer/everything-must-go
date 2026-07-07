@@ -36,7 +36,7 @@ Move to stir the gas, click during the fall to feed it something.
 - [x] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
 - [x] Milestone 4: cursor well, silhouette cast, rogue-hole merger (built out of order, ahead of 3b)
 - [x] Milestone 5: adaptive score and enter gate — fully synthesized WebAudio score driven by cycle progress, behind an enter gate offering sound or silence
-- [ ] Milestone 6: quality tiers, mobile, deploy
+- [x] Milestone 6: quality tiers, mobile touch, fallbacks, reduced motion, GitHub Pages deploy
 
 ## Performance
 
