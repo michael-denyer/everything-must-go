@@ -99,5 +99,5 @@ Full find→refute workflow over the milestone diff (the one full-depth review p
 ### Task 6: Acceptance + ship
 
 - [ ] Controller: full unit + e2e suites; a sound-on soak with `?tier=medium` (rebuild path exercised in anger); perf numbers — high on this Mac (dev server, `?debug` fps), medium via CPU-throttled Chrome (CDP `setCPUThrottlingRate`), recorded in the README table. Low-tier number comes from MD's phone against the live URL.
-- [ ] PR #7, squash-merge after MD sign-off, enable Pages (`gh api` build_type=workflow), watch the deploy run (Monitor), verify the live URL.
+- [ ] PR #7, squash-merge after MD sign-off, watch the deploy run (Monitor), verify the live URL. (Pages already enabled with build_type=workflow on 2026-07-07, review-caught ordering: enablement must precede the first push-to-main run or configure-pages fails.)
 - [ ] MD (acceptance authority): phone test passes, deployed URL loads clean, look/feel unchanged on desktop high tier.
