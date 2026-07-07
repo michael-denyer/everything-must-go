@@ -100,8 +100,10 @@ export function createPostChain(
       bloom.threshold = BLOOM_THRESHOLD + (1 - f) * 24;
     },
     setSize(width: number, height: number): void {
+      // composer.setSize already sizes every pass in drawing-buffer pixels
+      // (width * pixelRatio); a second bloom.setSize call in CSS pixels here
+      // would shrink the mip chain below buffer resolution on dpr > 1.
       composer.setSize(width, height);
-      bloom.setSize(width, height);
       project(camera, width, height, lastShadowR);
     },
     dispose(): void {

@@ -17,10 +17,22 @@ export function showPoster(play: (() => void) | null): void {
 
   if (play !== null) {
     playBtn?.classList.remove('hidden');
-    playBtn?.addEventListener('click', () => {
-      poster?.classList.add('hidden');
-      play();
-    });
+    // The poster stays up while the main chunk loads — boot.ts hides it on
+    // import success. Hiding here would flash black for the whole download.
+    playBtn?.addEventListener('click', () => play());
   }
   poster?.classList.remove('hidden');
+}
+
+export function hidePoster(): void {
+  document.getElementById('poster')?.classList.add('hidden');
+}
+
+// Terminal boot failure: ES module maps cache a module-scope evaluation error,
+// so re-importing can never succeed — hide the dead Play affordance and say so.
+export function showPosterFailure(): void {
+  document.getElementById('poster-play')?.classList.add('hidden');
+  const line = document.getElementById('poster-line');
+  if (line) line.textContent = 'the live piece could not start on this device — reload to retry';
+  document.getElementById('poster')?.classList.remove('hidden');
 }

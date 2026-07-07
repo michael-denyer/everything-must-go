@@ -26,15 +26,21 @@ const FRAG = /* glsl */ `
     // match the disk sprites — the approaching (screen-left) side flares, the
     // receding side goes nearly dark. Same crescent as the real images.
     float doppler = pow(1.0 + 0.55 * clamp(-dir.x, -1.0, 1.0), 3.0);
-    float topBand = exp(-pow((d - rs * 2.0) / (rs * 0.55), 2.0)) * smoothstep(0.05, 0.55, dir.y);
-    float botBand = exp(-pow((d - rs * 1.45) / (rs * 0.28), 2.0)) * smoothstep(0.05, 0.55, -dir.y);
+    // Gaussians square explicitly: pow(x, 2.0) is undefined for x < 0 in
+    // GLSL ES (mobile drivers lower pow to exp2(y*log2(x)) -> NaN), and the
+    // base is negative across the whole region inside each band radius.
+    float tx = (d - rs * 2.0) / (rs * 0.55);
+    float bx = (d - rs * 1.45) / (rs * 0.28);
+    float topBand = exp(-tx * tx) * smoothstep(0.05, 0.55, dir.y);
+    float botBand = exp(-bx * bx) * smoothstep(0.05, 0.55, -dir.y);
     // uFade fades only the lensed emissive (fold bands + photon ring).
     col += blackbody(heat) * (topBand * 1.5 + botBand * 0.9) * doppler * 1.8 * uFade;
 
     // Photon ring, beamed the same way: prograde photons pile up on the
     // approaching side of a spinning hole, so the ring is bright-left and
     // faint-right rather than a uniform halo.
-    float ring = exp(-pow((d - rs * 1.12) / (rs * 0.045), 2.0));
+    float rx = (d - rs * 1.12) / (rs * 0.045);
+    float ring = exp(-rx * rx);
     float ringBeam = mix(0.35, 1.9, smoothstep(-1.0, 1.0, -dir.x));
     col += vec3(1.0, 0.98, 0.94) * ring * 2.4 * ringBeam * uFade;
 

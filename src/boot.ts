@@ -5,17 +5,21 @@
 // import below IS the boot: skipping it (no WebGL2) or deferring it behind
 // the play click (reduced motion) is what keeps those paths free of
 // construction, auto-starting motion, and console errors.
-import { showPoster } from './ui/poster';
+import { hidePoster, showPoster, showPosterFailure } from './ui/poster';
 
 // A rejected chunk fetch or a module-scope throw in main.ts (including a
 // WebGLRenderer that fails where the scratch probe passed) must never leave
-// a black page: fall back to the poster. On the reduced-motion path the play
-// button stays wired, so clicking it retries the import.
+// a black page. Failure is terminal — the module map caches the evaluation
+// error, so a re-import cannot succeed — so the poster drops its Play button
+// and says reload. On success the poster (if shown) comes down only once the
+// chunk is live, so the reduced-motion path never flashes black mid-download.
 function boot(): void {
-  import('./main').catch((err: unknown) => {
-    console.error('[emg] boot failed', err);
-    showPoster(null);
-  });
+  import('./main')
+    .then(() => hidePoster())
+    .catch((err: unknown) => {
+      console.error('[emg] boot failed', err);
+      showPosterFailure();
+    });
 }
 
 if (document.createElement('canvas').getContext('webgl2') === null) {

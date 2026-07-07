@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# A newer push on the same ref cancels the older in-flight run, so an older
+# commit's deploy can never start after a newer one's (silent stale-deploy
+# inversion) — and superseded PR runs stop burning minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

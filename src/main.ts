@@ -32,6 +32,7 @@ import type { Body } from './render/body';
 import { createTitleEater } from './ui/titleEater';
 import { createAudioEngine } from './audio/audioEngine';
 import { createEnterGate } from './ui/enterGate';
+import { showPoster } from './ui/poster';
 import type { CycleAudioParams } from './audio/score';
 import castManifest from './assets/cast/manifest.json';
 import whaleUrl from './assets/cast/whale.png';
@@ -460,14 +461,24 @@ const detector = tierPin === null ? createSustainedLowDetector() : null;
 let probeApplied = false;
 
 let contextLost = false;
+let contextLostTimer: ReturnType<typeof setTimeout> | null = null;
 canvas.addEventListener('webglcontextlost', (e) => {
   // preventDefault signals we handle restoration (three's own handler also
   // does this; keeping it here means we don't depend on listener order).
   e.preventDefault();
   contextLost = true;
+  // Restoration usually follows within a frame or two, but a terminal GPU
+  // loss never fires webglcontextrestored — after 10 s of silence, fall back
+  // to the poster instead of freezing over a blanked canvas ("never a blank
+  // page" covers runtime failures too).
+  contextLostTimer = setTimeout(() => showPoster(null), 10_000);
 });
 canvas.addEventListener('webglcontextrestored', () => {
   contextLost = false;
+  if (contextLostTimer !== null) {
+    clearTimeout(contextLostTimer);
+    contextLostTimer = null;
+  }
   console.info(`[emg] context restored: rebuilding at ${currentTier}`);
   // Registered after the WebGLRenderer constructor, so three's own restore
   // handler has already re-initialized GL state by the time this runs. Scene
@@ -504,10 +515,12 @@ function frame(now: number): void {
   last = now;
 
   // Tier governance samples the RAW frame delta — the MAX_DT clamp floors
-  // apparent fps at 30 and would mask every slow device. Gap frames (> 1 s:
-  // tab refocus, rAF stalls) are skipped, or a single multi-second gap would
-  // satisfy the whole sustained-low window in one sample.
-  if (rawDt > 0 && rawDt <= 1) {
+  // apparent fps at 30 and would mask every slow device. Gap frames (> 0.5 s)
+  // are skipped: tab-refocus deltas would satisfy the whole sustained-low
+  // window in one sample, and Firefox ticks offscreen same-origin iframes at
+  // exactly 1 Hz (review-verified), which must read as throttling, not jank.
+  // Genuine 2-24 fps jank still lands well inside the window.
+  if (rawDt > 0 && rawDt <= 0.5) {
     if (probe !== null && !probeApplied) {
       probe.sample(rawDt);
       if (probe.done()) {

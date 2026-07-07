@@ -74,10 +74,15 @@ test('debug HUD reports the pinned tier and particle count', async ({ page }) =>
 test('context loss recovers at the same tier with progress preserved', async ({ page }) => {
   const errors = collectConsoleErrors(page);
 
-  await page.goto('/?tier=high&seed=7');
+  // A compressed cycle and a progress floor give the preservation assertion
+  // power: with the default 720 s cycle, before.progress is ~1e-4 at snapshot
+  // and a rebuild() that reset cycleT to 0 would still pass a drift check
+  // (review-caught vacuity). At cycle=45, progress 0.05 is ~2.3 sim-s — a
+  // reset drops after.progress BELOW the floor and fails loudly.
+  await page.goto('/?tier=high&seed=7&cycle=45');
   await waitForEmg(page);
   await page.waitForFunction(
-    () => (window as unknown as { __emg: Emg }).__emg.params.progress > 0,
+    () => (window as unknown as { __emg: Emg }).__emg.params.progress > 0.05,
   );
   const before = await readEmg(page);
 
@@ -104,11 +109,14 @@ test('context loss recovers at the same tier with progress preserved', async ({ 
   );
 
   // The loop resumes at the same tier, and progress frozen during the loss
-  // carries over (720 s cycle: normal test-time drift stays well under 0.02).
+  // carries over: monotone (a cycleT reset would land below the 0.05 floor)
+  // and within a drift budget re-derived for the 45 s cycle (a few wall-
+  // seconds of SwiftShader sim time stays well under 0.08 of a cycle).
   const after = await readEmg(page);
   expect(after.tier).toBe('high');
   expect(after.texSize).toBe(1024);
-  expect(Math.abs(after.progress - before.progress)).toBeLessThan(0.02);
+  expect(after.progress).toBeGreaterThanOrEqual(before.progress);
+  expect(after.progress - before.progress).toBeLessThan(0.08);
 
   // Discriminates the app's rebuild path from three's own context-restore
   // handling: only rebuild() increments this counter. Without it this test
