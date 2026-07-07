@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, SHADOW_R, TEX_SIZE, WELL_STRENGTH } from './config';
+import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, PROBE_MIN_FPS, SHADOW_R, WELL_STRENGTH } from './config';
+import {
+  TIERS,
+  chooseInitialTier,
+  createFpsProbe,
+  createSustainedLowDetector,
+  parseTierParam,
+  tierBelow,
+  type TierName,
+} from './quality/tiers';
 import { createScene } from './scene';
 import { generateCosmos, type CosmosSpec } from './core/cosmosGen';
 import { evalCycle } from './core/cycle';
@@ -75,7 +84,6 @@ function smoothstep(a: number, b: number, x: number): number {
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 
 const { scene, camera } = createScene();
@@ -93,6 +101,24 @@ const debugEl = document.getElementById('debug') as HTMLDivElement;
 const counterEl = document.getElementById('counter') as HTMLDivElement;
 const titleLineEl = document.getElementById('title-line') as HTMLSpanElement;
 if (debug) debugEl.style.display = 'block';
+
+// ---- Quality tier. ?tier pins it: no probe, no live downgrade (and, like
+// ?cycle, it never affects gate visibility — see enterGate.shouldSkip).
+// Otherwise the GPU/UA heuristic picks the start and the probe + sustained-low
+// detector below can only move it downward.
+const tierPin = parseTierParam(q.get('tier'));
+
+function unmaskedRendererString(): string {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  // Without the extension (some hardened browsers), the masked RENDERER string
+  // still feeds the heuristic — it just reads as unknown desktop -> high.
+  return String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+}
+
+let currentTier: TierName =
+  tierPin ?? chooseInitialTier({ rendererString: unmaskedRendererString(), userAgent: navigator.userAgent });
+renderer.setPixelRatio(Math.min(devicePixelRatio, TIERS[currentTier].pixelRatioCap));
 
 let cosmosNo = 0;
 let spec: CosmosSpec;
@@ -146,39 +172,50 @@ const disposables: Array<{ object: THREE.Object3D; dispose(): void }> = [];
 
 let titleEater: ReturnType<typeof createTitleEater> | null = null;
 
-function seedCosmos(seed: number): void {
-  cosmosNo++;
-  spec = generateCosmos(seed);
-  if (Number.isFinite(cycleOverride) && cycleOverride > 0) spec.cycleSeconds = cycleOverride;
-  cycleT = 0;
+// The tier-dependent scene pieces, shared by seedCosmos (new cosmos, same
+// tier) and rebuild (same cosmos, new tier). Disk points live OUTSIDE the
+// `disposables` cosmos sweep because their lifetime is the tier's, not the
+// cosmos's — this function is their single owner.
+function buildSimAndDisk(): void {
   if (sim) sim.dispose();
   sim = new GpuSim(renderer, {
-    texSize: TEX_SIZE,
+    texSize: TIERS[currentTier].texSize,
     innerR: spec.diskInner0,
     outerR: spec.diskOuter0,
     gm: GM,
     thickness: DISK_THICKNESS,
     seed: spec.diskSeed,
   });
+  if (disk) {
+    scene.remove(disk.points);
+    disk.points.geometry.dispose();
+    (disk.points.material as THREE.Material).dispose();
+  }
+  disk = createDiskPoints(TIERS[currentTier].texSize, renderer.getPixelRatio());
+  scene.add(disk.points);
+}
+
+function seedCosmos(seed: number): void {
+  cosmosNo++;
+  spec = generateCosmos(seed);
+  if (Number.isFinite(cycleOverride) && cycleOverride > 0) spec.cycleSeconds = cycleOverride;
+  cycleT = 0;
+  buildSimAndDisk();
   for (const d of disposables) {
     scene.remove(d.object);
     d.dispose();
   }
   disposables.length = 0;
-  // Captured into function-local consts so each closure below is bound to
+  // Captured into a function-local const so each closure below is bound to
   // *this* cosmos's instance, not whatever the module-level `let` holds when
   // the sweep eventually runs. Bodies already do this via their loop-local
   // `b` (see the disposables.push in the loop further down) — this removes
-  // the same ordering dependency from disk/stars/debris/belt, which used to
-  // be correct only because the sweep always ran before reassignment.
-  const dp = createDiskPoints(TEX_SIZE);
-  disk = dp;
+  // the same ordering dependency from stars/debris/belt, which used to be
+  // correct only because the sweep always ran before reassignment.
   const st = createStarfield(spec.starCount, spec.starShell, spec.starSeed);
   stars = st;
   scene.add(st.points);
-  scene.add(dp.points);
   disposables.push(
-    { object: dp.points, dispose: () => { dp.points.geometry.dispose(); (dp.points.material as THREE.Material).dispose(); } },
     { object: st.points, dispose: () => { st.points.geometry.dispose(); (st.points.material as THREE.Material).dispose(); } },
   );
 
@@ -392,9 +429,50 @@ document.addEventListener('visibilitychange', () => {
 });
 
 seedCosmos(Number.isFinite(seedParam) ? seedParam : 1);
-const post = createPostChain(renderer, scene, camera);
+let post = createPostChain(renderer, scene, camera, TIERS[currentTier]);
 post.lensingUpdate(camera, innerWidth, innerHeight, SHADOW_R);
 gate.showIfNeeded();
+
+// ---- Tier governance: probe, live downgrade, context loss. All three tier
+// changes route through the ONE rebuild path below (M6 Global Constraints).
+// Only tier-dependent pieces are reconstructed — spec, cycleT, bodies, sky,
+// debris, audio, and gate state are untouched, which is what "the cycle
+// resumes at the same progress" rests on.
+function rebuild(tier: TierName): void {
+  currentTier = tier;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, TIERS[tier].pixelRatioCap));
+  buildSimAndDisk();
+  post.dispose();
+  post = createPostChain(renderer, scene, camera, TIERS[tier]);
+  // Re-arm after every rebuild: the detector latches after firing, and a
+  // fresh tier deserves a fresh 5-second window.
+  detector?.reset();
+}
+
+// The probe is gate-phased by spec: programmatic entries (?seed/?t/?debug)
+// skip it along with the gate. Live downgrade stays active on every entry
+// unless ?tier pins.
+const probe = tierPin === null && !gate.shouldSkip() ? createFpsProbe() : null;
+const detector = tierPin === null ? createSustainedLowDetector() : null;
+let probeApplied = false;
+
+let contextLost = false;
+canvas.addEventListener('webglcontextlost', (e) => {
+  // preventDefault signals we handle restoration — without it the browser
+  // never fires webglcontextrestored.
+  e.preventDefault();
+  contextLost = true;
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  contextLost = false;
+  // Registered after the WebGLRenderer constructor, so three's own restore
+  // handler has already re-initialized GL state by the time this runs. Scene
+  // textures/geometries re-upload from their retained CPU copies on the next
+  // render; the sim's particle state has no CPU copy, so rebuild() reseeds it
+  // at the current cycle params (accepted per spec: same progress, the gas
+  // re-forms).
+  rebuild(currentTier);
+});
 
 function onResize(): void {
   camera.aspect = innerWidth / innerHeight;
@@ -409,8 +487,45 @@ let frames = 0;
 let fpsWindowStart = performance.now();
 
 function frame(now: number): void {
-  const dt = Math.min(MAX_DT, (now - last) / 1000) || 1 / 60;
+  if (contextLost) {
+    // Freeze while the context is gone: no sim/render calls against a dead
+    // context, and cycleT holds so the piece resumes at the same progress
+    // once webglcontextrestored rebuilds the tier pieces.
+    last = now;
+    requestAnimationFrame(frame);
+    return;
+  }
+  const rawDt = (now - last) / 1000;
+  const dt = Math.min(MAX_DT, rawDt) || 1 / 60;
   last = now;
+
+  // Tier governance samples the RAW frame delta — the MAX_DT clamp floors
+  // apparent fps at 30 and would mask every slow device. Gap frames (> 1 s:
+  // tab refocus, rAF stalls) are skipped, or a single multi-second gap would
+  // satisfy the whole sustained-low window in one sample.
+  if (rawDt > 0 && rawDt <= 1) {
+    if (probe !== null && !probeApplied) {
+      probe.sample(rawDt);
+      if (probe.done()) {
+        probeApplied = true;
+        const median = probe.medianFps();
+        const below = tierBelow(currentTier);
+        if (median !== null && median < PROBE_MIN_FPS && below !== null) {
+          console.info(`[emg] tier: ${currentTier} -> ${below} (probe median ${Math.round(median)} fps)`);
+          rebuild(below);
+        }
+      }
+    }
+    if (detector !== null && detector.sample(rawDt)) {
+      const below = tierBelow(currentTier);
+      // At the low floor tierBelow is null; the fired detector stays latched,
+      // which is the desired end state — no re-arm, no repeat work.
+      if (below !== null) {
+        console.info(`[emg] tier: ${currentTier} -> ${below} (sustained low fps)`);
+        rebuild(below);
+      }
+    }
+  }
 
   cycleT += dt;
   if (!Number.isFinite(tFreeze) && cycleT >= spec.cycleSeconds) {
@@ -633,12 +748,14 @@ function frame(now: number): void {
     params: p,
     alive: aliveCounts,
     debrisAlive: debris.aliveCount(),
+    tier: currentTier,
+    texSize: sim.texSize,
   };
 
   if (debug) {
     frames++;
     if (now - fpsWindowStart >= 1000) {
-      debugEl.textContent = `${frames} fps · ${p.phase}`;
+      debugEl.textContent = `${frames} fps · ${currentTier} · ${sim.texSize * sim.texSize} particles · ${p.progress.toFixed(2)} · ${p.phase}`;
       frames = 0;
       fpsWindowStart = now;
     }

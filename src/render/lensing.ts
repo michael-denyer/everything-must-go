@@ -19,10 +19,7 @@ const FRAG = /* glsl */ `
     float rs = uShadowUv;
     vec2 dir = o / max(d, 1e-5);
 
-    float bend = 1.6 * rs * rs / max(d, 1e-4);
-    vec2 srcO = o - dir * bend;
-    srcO.x /= uAspect;
-    vec3 col = texture2D(tDiffuse, clamp(uHoleUv + srcO, 0.0, 1.0)).rgb;
+    ${'$'}{srcSample}
 
     float heat = clamp(1.0 - (d - rs) / (rs * 2.2), 0.0, 1.0);
     // Relativistic beaming on the lensed emissive: cubed (bolometric law) to
@@ -46,7 +43,23 @@ const FRAG = /* glsl */ `
   }
 `;
 
-export function createLensingPass(): {
+// The bend is the pass's expensive part: a per-pixel computed texture
+// coordinate (dependent read) that mobile tile GPUs cannot prefetch. Low tier
+// swaps it for a plain passthrough sample; the painted fold bands, photon
+// ring, and shadow carve stay in the shader either way, so the money shot
+// keeps its anatomy with lensing off (per the M6 tier table).
+const BEND_SAMPLE = /* glsl */ `
+    float bend = 1.6 * rs * rs / max(d, 1e-4);
+    vec2 srcO = o - dir * bend;
+    srcO.x /= uAspect;
+    vec3 col = texture2D(tDiffuse, clamp(uHoleUv + srcO, 0.0, 1.0)).rgb;
+`;
+
+const FLAT_SAMPLE = /* glsl */ `
+    vec3 col = texture2D(tDiffuse, vUv).rgb;
+`;
+
+export function createLensingPass(bend: boolean): {
   pass: ShaderPass;
   update(centerUv: [number, number], radiusUv: number, aspect: number): void;
   setFade(f: number): void;
@@ -67,7 +80,10 @@ export function createLensingPass(): {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
-    fragmentShader: FRAG.replace('${blackbody}', blackbodyGlsl()),
+    fragmentShader: FRAG.replace('${srcSample}', bend ? BEND_SAMPLE : FLAT_SAMPLE).replace(
+      '${blackbody}',
+      blackbodyGlsl(),
+    ),
   });
 
   return {
