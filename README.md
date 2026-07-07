@@ -47,7 +47,7 @@ rates below are read from the piece's own `?debug` HUD.
 |------|--------|-----|
 | high | MacBook Pro (Apple silicon), Chrome | 120 (display-capped) |
 | medium | same machine, 4x CDP CPU throttle | 120 (display-capped; the workload is GPU-bound, so CPU throttling does not degrade it) |
-| low | real phone against the live URL | recorded at the post-deploy phone acceptance pass |
+| low | real phone against the live URL | phone acceptance pass passed 2026-07-07 (look and feel accepted; HUD fps not captured) |
 
 ## Architecture
 
