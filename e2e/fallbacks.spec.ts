@@ -45,7 +45,7 @@ test('missing webgl2 shows the poster and constructs nothing', async ({ page }) 
 });
 
 test.describe('prefers-reduced-motion', () => {
-  test.use({ reducedMotion: 'reduce' });
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
   test('poster pauses the piece; play boots it and the gate appears', async ({ page }) => {
     const errors = collectConsoleErrors(page);
