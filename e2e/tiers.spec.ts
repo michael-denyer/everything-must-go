@@ -72,6 +72,7 @@ test('debug HUD reports the pinned tier and particle count', async ({ page }) =>
 });
 
 test('context loss recovers at the same tier with progress preserved', async ({ page }) => {
+  test.slow(); // reaching the 0.05 progress floor takes ~9s locally, far longer on the CI runner
   const errors = collectConsoleErrors(page);
 
   // A compressed cycle and a progress floor give the preservation assertion

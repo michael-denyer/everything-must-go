@@ -108,6 +108,7 @@ test('a bare cycle param keeps the gate (audition seam), seed+cycle skips it', a
 });
 
 test('the corner toggle unlocks after silent entry and mutes after sound entry', async ({ page }) => {
+  test.slow(); // the CI runner's software GL needs the 3x budget (run 28883660525)
   const errors = collectConsoleErrors(page);
   await installAudioContextCounter(page);
 
