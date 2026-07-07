@@ -109,6 +109,10 @@ export function createPostChain(
       // pass; the added passes are ours to release (Pass's base dispose is a
       // no-op, so RenderPass is safe to include in the sweep).
       for (const pass of composer.passes) pass.dispose();
+      // r172 UnrealBloomPass.dispose() skips materialHighPassFilter (created
+      // in its constructor but missing from its dispose sweep) — release it
+      // here or every rebuild leaks one ShaderMaterial.
+      bloom.materialHighPassFilter.dispose();
       composer.dispose();
     },
     holeScreen(): [number, number] {

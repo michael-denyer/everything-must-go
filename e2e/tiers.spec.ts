@@ -5,6 +5,7 @@ import { PNG } from 'pngjs';
 type Emg = {
   tier: string;
   texSize: number;
+  rebuilds: number;
   spec: object;
   params: { progress: number };
 };
@@ -35,10 +36,10 @@ function waitForEmg(page: Page): Promise<unknown> {
   return page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
 }
 
-function readEmg(page: Page): Promise<{ tier: string; texSize: number; spec: string; progress: number }> {
+function readEmg(page: Page): Promise<{ tier: string; texSize: number; rebuilds: number; spec: string; progress: number }> {
   return page.evaluate(() => {
     const e = (window as unknown as { __emg: Emg }).__emg;
-    return { tier: e.tier, texSize: e.texSize, spec: JSON.stringify(e.spec), progress: e.params.progress };
+    return { tier: e.tier, texSize: e.texSize, rebuilds: e.rebuilds, spec: JSON.stringify(e.spec), progress: e.params.progress };
   });
 }
 
@@ -95,6 +96,12 @@ test('context loss recovers at the same tier with progress preserved', async ({ 
   await page.waitForFunction(
     () => !(document.getElementById('app') as HTMLCanvasElement).getContext('webgl2')!.isContextLost(),
   );
+  // __emg is rewritten once per frame, so wait for a post-rebuild frame before
+  // snapshotting — restoreContext() returning does not mean a frame has run.
+  await page.waitForFunction(
+    (prev) => (window as unknown as { __emg: Emg }).__emg.rebuilds > prev,
+    before.rebuilds,
+  );
 
   // The loop resumes at the same tier, and progress frozen during the loss
   // carries over (720 s cycle: normal test-time drift stays well under 0.02).
@@ -102,6 +109,11 @@ test('context loss recovers at the same tier with progress preserved', async ({ 
   expect(after.tier).toBe('high');
   expect(after.texSize).toBe(1024);
   expect(Math.abs(after.progress - before.progress)).toBeLessThan(0.02);
+
+  // Discriminates the app's rebuild path from three's own context-restore
+  // handling: only rebuild() increments this counter. Without it this test
+  // passes even if the restored handler were a no-op (review-caught).
+  expect(after.rebuilds).toBe(before.rebuilds + 1);
 
   // ...and keeps advancing — live frames, not a stale __emg snapshot.
   await page.waitForFunction(

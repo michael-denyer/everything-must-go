@@ -438,7 +438,10 @@ gate.showIfNeeded();
 // Only tier-dependent pieces are reconstructed — spec, cycleT, bodies, sky,
 // debris, audio, and gate state are untouched, which is what "the cycle
 // resumes at the same progress" rests on.
+let rebuildCount = 0; // e2e-observable proof the rebuild path (not just three's own restore) ran
+
 function rebuild(tier: TierName): void {
+  rebuildCount++;
   currentTier = tier;
   renderer.setPixelRatio(Math.min(devicePixelRatio, TIERS[tier].pixelRatioCap));
   buildSimAndDisk();
@@ -458,13 +461,14 @@ let probeApplied = false;
 
 let contextLost = false;
 canvas.addEventListener('webglcontextlost', (e) => {
-  // preventDefault signals we handle restoration — without it the browser
-  // never fires webglcontextrestored.
+  // preventDefault signals we handle restoration (three's own handler also
+  // does this; keeping it here means we don't depend on listener order).
   e.preventDefault();
   contextLost = true;
 });
 canvas.addEventListener('webglcontextrestored', () => {
   contextLost = false;
+  console.info(`[emg] context restored: rebuilding at ${currentTier}`);
   // Registered after the WebGLRenderer constructor, so three's own restore
   // handler has already re-initialized GL state by the time this runs. Scene
   // textures/geometries re-upload from their retained CPU copies on the next
@@ -750,6 +754,7 @@ function frame(now: number): void {
     debrisAlive: debris.aliveCount(),
     tier: currentTier,
     texSize: sim.texSize,
+    rebuilds: rebuildCount,
   };
 
   if (debug) {
