@@ -13,6 +13,7 @@ export function createPostChain(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
+  quality: { lensing: boolean; bloomStrengthScale: number },
 ): {
   composer: EffectComposer;
   lensing: ReturnType<typeof createLensingPass>;
@@ -21,6 +22,7 @@ export function createPostChain(
   setCycleFade(f: number): void;
   setSize(width: number, height: number): void;
   holeScreen(): [number, number];
+  dispose(): void;
 } {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = EXPOSURE;
@@ -28,7 +30,9 @@ export function createPostChain(
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
-  const lensing = createLensingPass();
+  // quality.lensing=false keeps this pass (it also paints the fold bands +
+  // photon ring and feeds recarve alignment) but drops the ray-bend inside it.
+  const lensing = createLensingPass(quality.lensing);
   composer.addPass(lensing.pass);
 
   // Bloom now runs AFTER lensing (reverses the M2 order): the lensed photon
@@ -39,7 +43,7 @@ export function createPostChain(
   // pitch-black horizon by construction regardless of bloom strength.
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(innerWidth, innerHeight),
-    BLOOM_STRENGTH,
+    BLOOM_STRENGTH * quality.bloomStrengthScale,
     BLOOM_RADIUS,
     BLOOM_THRESHOLD,
   );
@@ -96,9 +100,22 @@ export function createPostChain(
       bloom.threshold = BLOOM_THRESHOLD + (1 - f) * 24;
     },
     setSize(width: number, height: number): void {
+      // composer.setSize already sizes every pass in drawing-buffer pixels
+      // (width * pixelRatio); a second bloom.setSize call in CSS pixels here
+      // would shrink the mip chain below buffer resolution on dpr > 1.
       composer.setSize(width, height);
-      bloom.setSize(width, height);
       project(camera, width, height, lastShadowR);
+    },
+    dispose(): void {
+      // EffectComposer.dispose() only covers its own render targets + copy
+      // pass; the added passes are ours to release (Pass's base dispose is a
+      // no-op, so RenderPass is safe to include in the sweep).
+      for (const pass of composer.passes) pass.dispose();
+      // r172 UnrealBloomPass.dispose() skips materialHighPassFilter (created
+      // in its constructor but missing from its dispose sweep) — release it
+      // here or every rebuild leaks one ShaderMaterial.
+      bloom.materialHighPassFilter.dispose();
+      composer.dispose();
     },
     holeScreen(): [number, number] {
       // Convention boundary: centerUv comes from projectHole() as NDC-derived

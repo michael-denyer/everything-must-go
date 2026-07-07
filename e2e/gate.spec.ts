@@ -50,7 +50,7 @@ async function audioContextStates(page: Page): Promise<AudioContextState[]> {
 test('gate shows on canonical entry with both buttons, toggle stays hidden', async ({ page }) => {
   const errors = collectConsoleErrors(page);
 
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await expect(page.locator('#enter-gate')).toBeVisible();
   await expect(page.locator('#enter-sound')).toBeVisible();
   await expect(page.locator('#enter-silent')).toBeVisible();
@@ -63,7 +63,7 @@ test('entering silent dismisses the gate and creates no AudioContext', async ({ 
   const errors = collectConsoleErrors(page);
   await installAudioContextCounter(page);
 
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.click('#enter-silent');
 
   await expect(page.locator('#enter-gate')).toBeHidden();
@@ -78,7 +78,7 @@ test('entering with sound unlocks exactly one AudioContext', async ({ page }) =>
   const errors = collectConsoleErrors(page);
   await installAudioContextCounter(page);
 
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.click('#enter-sound');
 
   await expect(page.locator('#enter-gate')).toBeHidden();
@@ -97,23 +97,24 @@ test('a bare cycle param keeps the gate (audition seam), seed+cycle skips it', a
 
   // The audition seam (bbd5120): ?cycle alone is a canonical-with-short-cycle
   // entry and MUST show the gate so sound can be chosen.
-  await page.goto('/?cycle=60');
+  await page.goto('/?cycle=60&tier=high');
   await expect(page.locator('#enter-gate')).toBeVisible();
 
   // Any programmatic param still skips, even alongside cycle.
-  await page.goto('/?seed=1&cycle=45');
+  await page.goto('/?seed=1&cycle=45&tier=high');
   await expect(page.locator('#enter-gate')).toBeHidden();
 
   expect(errors).toEqual([]);
 });
 
 test('the corner toggle unlocks after silent entry and mutes after sound entry', async ({ page }) => {
+  test.slow(); // the CI runner's software GL needs the 3x budget (run 28883660525)
   const errors = collectConsoleErrors(page);
   await installAudioContextCounter(page);
 
   // Silent entry: no context. Toggling ON is a gesture — it must unlock
   // (create+run exactly one context) and reflect the on state.
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.click('#enter-silent');
   expect(await audioContextCount(page)).toBe(0);
 
@@ -136,7 +137,7 @@ test('the corner toggle unlocks after silent entry and mutes after sound entry',
 test('the corner toggle persists preference and pre-selects it on reload', async ({ page }) => {
   const errors = collectConsoleErrors(page);
 
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.click('#enter-sound');
   await expect(page.locator('#sound-toggle')).toBeVisible();
 
@@ -155,7 +156,7 @@ test('programmatic entry with ?seed skips the gate', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await installAudioContextCounter(page);
 
-  await page.goto('/?seed=1');
+  await page.goto('/?seed=1&tier=high');
   await expect(page.locator('#enter-gate')).toBeHidden();
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
 

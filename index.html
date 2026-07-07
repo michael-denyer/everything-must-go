@@ -4,9 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Everything Must Go</title>
+  <meta name="description" content="A procedural cosmos consumed by a spinning black hole, reborn forever — generative WebGL visuals and a fully synthesized score, cycling from serene to carnage to true darkness." />
+  <meta property="og:title" content="Everything Must Go" />
+  <meta property="og:description" content="A procedural cosmos consumed by a spinning black hole, reborn forever." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://michael-denyer.github.io/everything-must-go/" />
+  <meta property="og:image" content="https://michael-denyer.github.io/everything-must-go/og.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
   <style>
     html, body { margin: 0; height: 100%; background: #05060b; overflow: hidden; }
-    #app { display: block; width: 100vw; height: 100vh; touch-action: none; }
+    /* 100vh line stays as the fallback for browsers without dvh units. */
+    #app { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
     #title {
       position: fixed; top: 20px; left: 22px; color: rgba(238, 242, 252, .85);
       font-family: system-ui, sans-serif; font-size: 13px; letter-spacing: 4px;
@@ -61,12 +69,29 @@
       background: rgba(238, 242, 252, .06); outline: none;
     }
     .gate-btn.preferred { border-color: rgba(238, 242, 252, .6); }
-    #about-link {
+    #about-link, #poster-about {
       pointer-events: auto; cursor: pointer; margin-top: 6px;
       font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1px;
       color: rgba(168, 178, 205, .5); text-decoration: underline; background: none; border: none;
     }
-    #about-link:hover, #about-link:focus-visible { color: rgba(238, 242, 252, .8); outline: none; }
+    #about-link:hover, #about-link:focus-visible,
+    #poster-about:hover, #poster-about:focus-visible { color: rgba(238, 242, 252, .8); outline: none; }
+
+    /* Above the gate (1000), below the about overlay (1100) so about opened
+       from the poster reads on top. */
+    #poster {
+      position: fixed; inset: 0; z-index: 1050;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; padding: 24px; text-align: center; background: #05060b;
+    }
+    #poster img {
+      max-width: min(86vw, 760px); max-height: 56vh; width: auto; height: auto;
+      border: 1px solid rgba(168, 178, 205, .2); border-radius: 4px;
+    }
+    #poster p {
+      margin: 0; color: rgba(168, 178, 205, .65);
+      font-family: system-ui, sans-serif; font-size: 12px; letter-spacing: 1px;
+    }
 
     #sound-toggle {
       position: fixed; top: 18px; right: 20px; z-index: 900;
@@ -110,6 +135,13 @@
     #about-close:hover, #about-close:focus-visible {
       border-color: rgba(238, 242, 252, .7); background: rgba(238, 242, 252, .06); outline: none;
     }
+
+    /* Mobile: comfortable tap targets (~44px) without touching desktop. */
+    @media (max-width: 480px) {
+      .gate-btn { padding: 14px 22px; font-size: 13px; }
+      #sound-toggle { width: 44px; height: 44px; font-size: 17px; }
+      #about-link, #poster-about, #about-close { padding: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -117,6 +149,13 @@
   <div id="title"><span id="title-line">EVERYTHING MUST GO</span><small>a spinning black hole is closing this cosmos</small></div>
   <div id="counter"></div>
   <div id="debug"></div>
+
+  <div id="poster" class="hidden">
+    <img src="og.jpg" alt="a glowing accretion disk warped around a black hole" />
+    <p id="poster-line">a spinning black hole is closing this cosmos, forever, again</p>
+    <button id="poster-play" class="gate-btn hidden" type="button">Play</button>
+    <button id="poster-about" type="button">about</button>
+  </div>
 
   <div id="enter-gate" class="hidden">
     <div class="gate-content">
@@ -137,10 +176,11 @@
       <h2>ABOUT</h2>
       <p>Everything Must Go is a procedural cosmos consumed by a spinning black hole, reborn forever — stars, planets, galaxies, and a rare rogue merger, cycling from serene to carnage to true darkness before the next cosmos begins.</p>
       <p>Both the visuals and the sound are procedurally generated: the score is fully synthesized WebAudio, no samples, driven live by the same cycle that drives the sim.</p>
+      <p><a href="https://github.com/michael-denyer/everything-must-go">source on GitHub</a></p>
       <button id="about-close" type="button">close</button>
     </div>
   </div>
 
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="/src/boot.ts"></script>
 </body>
 </html>

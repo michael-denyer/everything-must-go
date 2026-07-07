@@ -14,7 +14,7 @@
 | medium | 512 (262,144) | 1.5 | full | strength ×0.75 |
 | low | 256 (65,536) | 1.0 | OFF (painted fold + photon ring carry the composition, per spec) | strength ×0.5 |
 
-Spec ranges honored: high 600k–1M ✓, medium 150k–300k ✓, low 40k–80k ✓. The deep sky, bodies, debris, and audio are identical across tiers (they are cheap; the particles + full-screen passes are the cost).
+Spec ranges honored: high 1024² = 1,048,576 (the count MD accepted visually in M1–M5; the spec's "600k–1M" is approximate and this sits at its top edge), medium 150k–300k ✓, low 40k–80k ✓. The deep sky, bodies, debris, and audio are identical across tiers (they are cheap; the particles + full-screen passes are the cost).
 
 **Heuristic (initial tier, before any construction):** software renderer (SwiftShader/llvmpipe/ANGLE-on-software) → low; mobile UA → medium; otherwise desktop → high, EXCEPT known-integrated GPU strings (Intel HD/UHD/Iris without Arc) → medium. Unknown desktop defaults HIGH — the probe corrects downward behind the gate, and the art comes first for the common case. The probe is downgrade-only (simpler; upgrade never happens mid-piece).
 
@@ -99,5 +99,5 @@ Full find→refute workflow over the milestone diff (the one full-depth review p
 ### Task 6: Acceptance + ship
 
 - [ ] Controller: full unit + e2e suites; a sound-on soak with `?tier=medium` (rebuild path exercised in anger); perf numbers — high on this Mac (dev server, `?debug` fps), medium via CPU-throttled Chrome (CDP `setCPUThrottlingRate`), recorded in the README table. Low-tier number comes from MD's phone against the live URL.
-- [ ] PR #7, squash-merge after MD sign-off, enable Pages (`gh api` build_type=workflow), watch the deploy run (Monitor), verify the live URL.
+- [ ] PR #7, squash-merge after MD sign-off, watch the deploy run (Monitor), verify the live URL. (Pages already enabled with build_type=workflow on 2026-07-07, review-caught ordering: enablement must precede the first push-to-main run or configure-pages fails.)
 - [ ] MD (acceptance authority): phone test passes, deployed URL loads clean, look/feel unchanged on desktop high tier.

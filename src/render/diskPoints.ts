@@ -67,7 +67,7 @@ const FRAG = /* glsl */ `
   }
 `;
 
-export function createDiskPoints(texSize: number): {
+export function createDiskPoints(texSize: number, pixelRatio: number): {
   points: THREE.Points;
   update(sim: GpuSim): void;
   setParams(p: { heatInner: number; heatOuter: number; fade: number }): void;
@@ -89,7 +89,9 @@ export function createDiskPoints(texSize: number): {
     uniforms: {
       uPositions: { value: null },
       uVelocities: { value: null },
-      uPixelRatio: { value: Math.min(devicePixelRatio, 2) },
+      // The renderer's tier-capped ratio, passed in so point sizes track the
+      // actual drawing-buffer scale rather than a hardcoded cap.
+      uPixelRatio: { value: pixelRatio },
       uHeatInner: { value: DISK_INNER },
       uHeatOuter: { value: DISK_OUTER },
       uFade: { value: 1 },

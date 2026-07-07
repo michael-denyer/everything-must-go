@@ -4,6 +4,8 @@ A WebGL art site: a spinning black hole consumes a procedurally generated
 cosmos over a twelve-minute cycle, then a new cosmos is born and it starts
 again. The site is the piece.
 
+Live: <https://michael-denyer.github.io/everything-must-go/>
+
 Behind it all: a baked galactic band and layered nebulae, satellite galaxies,
 star clusters, and a strobing pulsar, plus shooting stars — all of it draining
 into the disk and fading to black as the cycle consumes it.
@@ -20,7 +22,9 @@ npm run e2e        # full e2e suite (Playwright, builds first)
 ```
 
 URL controls: `?seed=<n>` picks the cosmos, `?cycle=<seconds>` compresses the cycle,
-`?t=<0..1>` freezes progress at a point in the arc, `?debug` shows fps and phase.
+`?t=<0..1>` freezes progress at a point in the arc, `?debug` shows fps and phase,
+`?tier=high|medium|low` pins the quality tier (disables the fps probe and live
+downgrade).
 
 Move to stir the gas, click during the fall to feed it something.
 
@@ -32,7 +36,18 @@ Move to stir the gas, click during the fall to feed it something.
 - [x] Milestone 3b: deep sky — nebulae, galaxies, clusters, pulsar, band
 - [x] Milestone 4: cursor well, silhouette cast, rogue-hole merger (built out of order, ahead of 3b)
 - [x] Milestone 5: adaptive score and enter gate — fully synthesized WebAudio score driven by cycle progress, behind an enter gate offering sound or silence
-- [ ] Milestone 6: quality tiers, mobile, deploy
+- [x] Milestone 6: quality tiers, mobile touch, fallbacks, reduced motion, GitHub Pages deploy
+
+## Performance
+
+Quality tiers scale particle count, pixel ratio, lensing, and bloom. Frame
+rates below are read from the piece's own `?debug` HUD.
+
+| Tier | Device | fps |
+|------|--------|-----|
+| high | MacBook Pro (Apple silicon), Chrome | 120 (display-capped) |
+| medium | same machine, 4x CDP CPU throttle | 120 (display-capped; the workload is GPU-bound, so CPU throttling does not degrade it) |
+| low | real phone against the live URL | recorded at the post-deploy phone acceptance pass |
 
 ## Architecture
 

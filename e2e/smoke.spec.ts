@@ -34,7 +34,7 @@ test('money shot renders: webgl2, no errors, shadow + ring pixels', async ({ pag
   });
   page.on('pageerror', (err) => errors.push(String(err)));
 
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   // Bare `/` shows the enter gate (the canonical-entry path) — dismiss it via
   // "Enter silent" before the money-shot pixel assertions below, exercising
@@ -76,7 +76,7 @@ test('money shot renders: webgl2, no errors, shadow + ring pixels', async ({ pag
 
 test('sustains at least 30 fps locally', async ({ page }) => {
   test.skip(!!process.env.CI, 'headless CI GPUs are not representative');
-  await page.goto('/');
+  await page.goto('/?tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.click('#enter-silent');
   const renderer = await page.evaluate(() => {
