@@ -369,8 +369,10 @@ addEventListener('pointerdown', onPointerDown);
 
 // ---- Audio + enter gate: audio reads core state one-directionally (per the
 // determinism boundary in the plan) — it never feeds back into sim/visual
-// state. The gate is skipped for programmatic/dev entries (?seed/?t/?cycle/
-// ?debug), which keeps every existing e2e on the silent, gate-free path.
+// state. The gate is skipped for programmatic/dev entries (?seed/?t/?debug),
+// which keeps every existing e2e on the silent, gate-free path. A bare ?cycle
+// deliberately KEEPS the gate (bbd5120) so a short-cycle audition can choose
+// sound.
 const audio = createAudioEngine();
 const gate = createEnterGate({
   onEnter(withSound: boolean): void {
