@@ -19,7 +19,7 @@
     "@types/pngjs": "^6.0.5",
     "@types/three": "^0.172.0",
     "pngjs": "^7.0.0",
-    "typescript": "~5.7.0",
+    "typescript": "~6.0.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.6"
   }
