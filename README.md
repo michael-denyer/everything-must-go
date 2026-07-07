@@ -16,7 +16,7 @@ Design spec: [.planning/superpowers/specs/2026-07-02-everything-must-go-design.m
 npm install
 npm run dev        # http://localhost:5173 (?debug for fps, ?seed=n)
 npm test           # unit tests (vitest)
-npm run e2e        # smoke test (Playwright, builds first)
+npm run e2e        # full e2e suite (Playwright, builds first)
 ```
 
 URL controls: `?seed=<n>` picks the cosmos, `?cycle=<seconds>` compresses the cycle,

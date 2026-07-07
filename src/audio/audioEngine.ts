@@ -43,6 +43,7 @@ export function createAudioEngine(): AudioEngine {
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null; // cycle-faded bus (music) — silenced in darkness
   let resolution: GainNode | null = null; // rebirth swell bus — gated by mute only, not the cycle fade
+  let wet: GainNode | null = null; // reverb wet level — ramped with mute so no ~3s tail escapes it
   let comp: DynamicsCompressorNode | null = null; // catches peaks of the busy mix
   let analyser: AnalyserNode | null = null;
   let analyserBuf: Uint8Array | null = null;
@@ -67,6 +68,7 @@ export function createAudioEngine(): AudioEngine {
     ctx = null;
     master = null;
     resolution = null;
+    wet = null;
     comp = null;
     analyser = null;
     analyserBuf = null;
@@ -116,10 +118,11 @@ export function createAudioEngine(): AudioEngine {
     // wet level rides into the same compressor as the dry signal.
     const convolver = ctx.createConvolver();
     convolver.buffer = makeImpulse(ctx, 3.2, 2.2);
-    const wet = ctx.createGain();
-    wet.gain.value = 0.45;
-    convolver.connect(wet);
-    wet.connect(compressor);
+    const wetGain = ctx.createGain();
+    wetGain.gain.value = enabled ? 0.45 : 0;
+    convolver.connect(wetGain);
+    wetGain.connect(compressor);
+    wet = wetGain;
 
     const masterGain = ctx.createGain();
     masterGain.gain.value = 0;
@@ -270,6 +273,9 @@ export function createAudioEngine(): AudioEngine {
 
   function scheduleStep(step: number, time: number): void {
     if (!ctx || !master) return;
+    // Muted: don't fabricate ~80 nodes/bar into a zero-gain bus. The scheduler
+    // keeps advancing nextStepTime, so re-enabling resumes on the grid.
+    if (!enabled) return;
     const bar = Math.floor(step / STEPS_PER_BAR);
     const s = ((step % STEPS_PER_BAR) + STEPS_PER_BAR) % STEPS_PER_BAR;
     const chord = chordAtBar(bar);
@@ -291,7 +297,12 @@ export function createAudioEngine(): AudioEngine {
     if (!ctx) return;
     const stepDur = 60 / tempoBpm(intensity) / 4; // 16th-note duration
     while (nextStepTime < ctx.currentTime + SCHEDULE_AHEAD) {
-      scheduleStep(currentStep, nextStepTime);
+      // Drop steps that fell into the past during a main-thread stall (>180ms
+      // GC/jank while audible): back-scheduling them clamps every missed note
+      // to "now" and they fire simultaneously as a flam. Skipping keeps the
+      // grid — the loop still advances nextStepTime, so playback resumes on
+      // the next future step.
+      if (nextStepTime >= ctx.currentTime - 0.005) scheduleStep(currentStep, nextStepTime);
       nextStepTime += stepDur;
       currentStep++;
     }
@@ -429,6 +440,10 @@ export function createAudioEngine(): AudioEngine {
       if (!ctx || !master) return;
       safeSetTarget(master.gain, on ? masterTarget : 0);
       if (resolution) safeSetTarget(resolution.gain, on ? 1 : 0);
+      // The wet path taps the buses PRE-gain-ramp target, so signal already in
+      // the 3.2s impulse would ring on for seconds after a mute — ramp the wet
+      // level down with the mute (and back up on re-enable).
+      if (wet) safeSetTarget(wet.gain, on ? 0.45 : 0);
       if (!on && chirp) safeSetTarget(chirp.gain.gain, 0);
     },
 

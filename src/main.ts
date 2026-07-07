@@ -348,7 +348,9 @@ function updatePointer(clientX: number, clientY: number): number | null {
 
 function isUiElement(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest('a, button, #debug, #counter') !== null;
+  // #enter-gate/#about included so a click on the overlay background (not a
+  // button) can't fall through to the feeding raycast while the gate is up.
+  return target.closest('a, button, #debug, #counter, #enter-gate, #about') !== null;
 }
 
 function onPointerMove(e: PointerEvent): void {

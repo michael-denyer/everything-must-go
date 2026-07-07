@@ -84,9 +84,51 @@ test('entering with sound unlocks exactly one AudioContext', async ({ page }) =>
   await expect(page.locator('#enter-gate')).toBeHidden();
   await expect.poll(() => audioContextCount(page)).toBe(1);
 
-  const states = await audioContextStates(page);
-  expect(states.length).toBe(1);
-  expect(states[0]).not.toBe('closed');
+  // 'running', not merely not-'closed': a context stuck 'suspended' means the
+  // sound chooser gets total silence — the exact regression this test guards.
+  // Playwright clicks are trusted gestures, so headless Chromium resumes.
+  await expect.poll(async () => (await audioContextStates(page))[0]).toBe('running');
+
+  expect(errors).toEqual([]);
+});
+
+test('a bare cycle param keeps the gate (audition seam), seed+cycle skips it', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+
+  // The audition seam (bbd5120): ?cycle alone is a canonical-with-short-cycle
+  // entry and MUST show the gate so sound can be chosen.
+  await page.goto('/?cycle=60');
+  await expect(page.locator('#enter-gate')).toBeVisible();
+
+  // Any programmatic param still skips, even alongside cycle.
+  await page.goto('/?seed=1&cycle=45');
+  await expect(page.locator('#enter-gate')).toBeHidden();
+
+  expect(errors).toEqual([]);
+});
+
+test('the corner toggle unlocks after silent entry and mutes after sound entry', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await installAudioContextCounter(page);
+
+  // Silent entry: no context. Toggling ON is a gesture — it must unlock
+  // (create+run exactly one context) and reflect the on state.
+  await page.goto('/');
+  await page.click('#enter-silent');
+  expect(await audioContextCount(page)).toBe(0);
+
+  await page.click('#sound-toggle');
+  await expect.poll(() => audioContextCount(page)).toBe(1);
+  await expect.poll(async () => (await audioContextStates(page))[0]).toBe('running');
+  await expect(page.locator('#sound-toggle')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('emg-sound'))).toBe('on');
+
+  // Toggling OFF must reflect the muted state on the first click (the
+  // toggledOn sync fixed in 77f10fb) — no second context, state flipped.
+  await page.click('#sound-toggle');
+  await expect(page.locator('#sound-toggle')).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(() => localStorage.getItem('emg-sound'))).toBe('off');
+  expect(await audioContextCount(page)).toBe(1);
 
   expect(errors).toEqual([]);
 });
@@ -111,10 +153,13 @@ test('the corner toggle persists preference and pre-selects it on reload', async
 
 test('programmatic entry with ?seed skips the gate', async ({ page }) => {
   const errors = collectConsoleErrors(page);
+  await installAudioContextCounter(page);
 
   await page.goto('/?seed=1');
   await expect(page.locator('#enter-gate')).toBeHidden();
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
 
+  // The skip path is silent by contract: no gesture, so no AudioContext.
+  expect(await audioContextCount(page)).toBe(0);
   expect(errors).toEqual([]);
 });
