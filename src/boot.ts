@@ -7,10 +7,21 @@
 // construction, auto-starting motion, and console errors.
 import { showPoster } from './ui/poster';
 
+// A rejected chunk fetch or a module-scope throw in main.ts (including a
+// WebGLRenderer that fails where the scratch probe passed) must never leave
+// a black page: fall back to the poster. On the reduced-motion path the play
+// button stays wired, so clicking it retries the import.
+function boot(): void {
+  import('./main').catch((err: unknown) => {
+    console.error('[emg] boot failed', err);
+    showPoster(null);
+  });
+}
+
 if (document.createElement('canvas').getContext('webgl2') === null) {
   showPoster(null);
 } else if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  showPoster(() => void import('./main'));
+  showPoster(boot);
 } else {
-  void import('./main');
+  boot();
 }

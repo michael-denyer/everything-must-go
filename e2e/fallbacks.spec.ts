@@ -38,6 +38,13 @@ test('missing webgl2 shows the poster and constructs nothing', async ({ page }) 
     .poll(() => page.evaluate(() => document.querySelector<HTMLImageElement>('#poster img')?.naturalWidth ?? 0))
     .toBeGreaterThan(0);
 
+  // The pre-boot about overlay is live DOM, not decoration: open and close it
+  // (review-caught — visibility alone was code-verified, never exercised).
+  await page.click('#poster-about');
+  await expect(page.locator('#about')).toBeVisible();
+  await page.click('#about-close');
+  await expect(page.locator('#about')).toBeHidden();
+
   // Settled module graph (no fetch still about to boot main), then: no boot.
   await page.waitForLoadState('networkidle');
   expect(await hasEmg(page)).toBe(false);
