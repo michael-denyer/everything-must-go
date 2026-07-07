@@ -99,7 +99,7 @@ const SEED_7_DEEP_SKY = {
 };
 
 test('same seed produces the same cosmos spec', async ({ page }) => {
-  await page.goto('/?seed=7');
+  await page.goto('/?seed=7&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const a = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
   const aPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
@@ -121,7 +121,7 @@ test('same seed produces the same cosmos spec', async ({ page }) => {
       shootingStarSeed: spec.shootingStarSeed,
     });
   });
-  await page.goto('/?seed=7');
+  await page.goto('/?seed=7&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const b = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
   const bPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
@@ -151,7 +151,7 @@ test('same seed produces the same cosmos spec', async ({ page }) => {
   // regression (reordered draws, changed ranges, dropped fields) changes these
   // values even though the two loads above still agree with each other.
   expect(JSON.parse(aDeepSky)).toEqual(SEED_7_DEEP_SKY);
-  await page.goto('/?seed=8');
+  await page.goto('/?seed=8&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const c = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: { spec: object } }).__emg.spec));
   const cPlanets = await page.evaluate(() => JSON.stringify((window as unknown as { __emg: EmgSpec }).__emg.spec.planets));
@@ -161,7 +161,7 @@ test('same seed produces the same cosmos spec', async ({ page }) => {
 
 test('darkness phase is near-black with the counter reading 95%', async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto('/?seed=7&t=0.95');
+  await page.goto('/?seed=7&t=0.95&tier=high');
   // Fresh-load disk must drain at frozen progress before darkness is measurable
   // (settled ~7.4, mid-drain ~14), so poll until the frame settles below the gate.
   const deadline = Date.now() + 75_000;
@@ -176,7 +176,7 @@ test('darkness phase is near-black with the counter reading 95%', async ({ page 
 });
 
 test('early cycle still passes the money-shot gates', async ({ page }) => {
-  await page.goto('/?seed=7&t=0.05');
+  await page.goto('/?seed=7&t=0.05&tier=high');
   await page.waitForTimeout(3000);
   const png = PNG.sync.read(await page.screenshot());
   const cx = Math.floor(png.width / 2);
@@ -195,7 +195,7 @@ test('all worlds are alive early in the cycle', async ({ page }) => {
   // burst radius at t=0.05 (verified by simulation), but ~22% of the seed
   // parameter space spawns a planet close enough to die within this 8s settle.
   // If this test ever changes seed, re-check that margin first.
-  await page.goto('/?seed=7&t=0.05');
+  await page.goto('/?seed=7&t=0.05&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(8000);
   const result = await page.evaluate(() => {
@@ -209,7 +209,7 @@ test('all worlds are alive early in the cycle', async ({ page }) => {
 
 test('inner worlds have died off by 80% consumed', async ({ page }) => {
   test.setTimeout(90_000);
-  await page.goto('/?seed=7&t=0.8');
+  await page.goto('/?seed=7&t=0.8&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const total = await page.evaluate(
     () => (window as unknown as { __emg: { spec: { planets: unknown[] } } }).__emg.spec.planets.length,
@@ -231,7 +231,7 @@ test('inner worlds have died off by 80% consumed', async ({ page }) => {
 });
 
 test('rebirth flash whites out the frame', async ({ page }) => {
-  await page.goto('/?seed=7&t=0.97');
+  await page.goto('/?seed=7&t=0.97&tier=high');
   await page.waitForTimeout(5000);
   const mean = frameMean(PNG.sync.read(await page.screenshot()));
   expect(mean).toBeGreaterThan(150);
@@ -239,7 +239,7 @@ test('rebirth flash whites out the frame', async ({ page }) => {
 
 test('feeding spawns a cast member and caps alive count at 2', async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto('/?seed=7&t=0.4'); // decay phase: canFeed() gates on decay/carnage
+  await page.goto('/?seed=7&t=0.4&tier=high'); // decay phase: canFeed() gates on decay/carnage
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(5000); // let the sim settle before the first feed click
 
@@ -268,7 +268,7 @@ test('feeding spawns a cast member and caps alive count at 2', async ({ page }) 
 });
 
 test('feeding is gated off in the serene phase', async ({ page }) => {
-  await page.goto('/?seed=7&t=0.05'); // serene phase: canFeed() requires decay/carnage
+  await page.goto('/?seed=7&t=0.05&tier=high'); // serene phase: canFeed() requires decay/carnage
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.mouse.click(400, 300);
   await page.waitForTimeout(5000);
@@ -283,7 +283,7 @@ test('a rogue merger boosts the hole radius beyond the base cycle curve', async 
   // just past the merge-boost smoothstep window (mergeP -> mergeP+0.02 in cycle.ts),
   // so rogueMerged is true and the boost is fully applied.
   const t = 0.6880207758257165 + 0.03;
-  await page.goto(`/?seed=1&t=${t}`);
+  await page.goto(`/?seed=1&t=${t}&tier=high`);
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(3000);
   const result = await page.evaluate(() => {
@@ -320,7 +320,7 @@ test('the title eater consumes a letter within the first cosmos', async ({ page 
     if (m.type() === 'error') errors.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/?seed=7&cycle=45'); // live, no t-freeze
+  await page.goto('/?seed=7&cycle=45&tier=high'); // live, no t-freeze
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __emg?: { params: { progress: number } } };
@@ -370,7 +370,7 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
     if (m.type() === 'error') errors.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/?seed=7&cycle=45');
+  await page.goto('/?seed=7&cycle=45&tier=high');
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __emg?: { params: { progress: number } } };
@@ -414,7 +414,7 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
 test('deep-sky roster is alive early and galaxies are consumed by late carnage', async ({ page }) => {
   test.setTimeout(90_000);
 
-  await page.goto('/?seed=1&t=0.05');
+  await page.goto('/?seed=1&t=0.05&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const specCounts = await page.evaluate(() => {
     const spec = (
@@ -442,7 +442,7 @@ test('deep-sky roster is alive early and galaxies are consumed by late carnage',
   // Late freeze: by t=0.9 the growing global drag (galaxy.ts's dragBase * 0.8)
   // has pulled both satellite galaxies well inside BURST*holeR — settle-poll
   // bounded at 45s per the task's contract.
-  await page.goto('/?seed=1&t=0.9');
+  await page.goto('/?seed=1&t=0.9&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const lateDeadline = Date.now() + 45_000;
   let lateGalaxies = 2;
@@ -503,12 +503,12 @@ function nebulaRegionMean(png: PNG): number {
 test('the deep sky dims with the cosmos (off-disk nebula region fades by late carnage)', async ({ page }) => {
   test.setTimeout(120_000);
 
-  await page.goto('/?seed=1&t=0.05');
+  await page.goto('/?seed=1&t=0.05&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   await page.waitForTimeout(3000);
   const earlyMean = nebulaRegionMean(PNG.sync.read(await page.screenshot()));
 
-  await page.goto('/?seed=1&t=0.95');
+  await page.goto('/?seed=1&t=0.95&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
   const deadline = Date.now() + 75_000;
   let lateMean = earlyMean;
@@ -535,7 +535,7 @@ test('nebula wisp-drain emits debris in the drain window', async ({ page }) => {
   // these frozen early freezes the drain is the dominant continuous emitter, so
   // a clear increase confirms it is actually spawning.
   const settledDebris = async (t: string): Promise<number> => {
-    await page.goto(`/?seed=7&t=${t}`);
+    await page.goto(`/?seed=7&t=${t}&tier=high`);
     await page.waitForFunction(
       () => (window as unknown as { __emg?: { debrisAlive?: number } }).__emg?.debrisAlive !== undefined,
     );
