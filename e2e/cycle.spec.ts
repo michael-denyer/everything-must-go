@@ -175,7 +175,23 @@ test('darkness phase is near-black with the counter reading 95%', async ({ page 
   await expect(page.locator('#counter')).toContainText('95% consumed');
 });
 
-test('early cycle still passes the money-shot gates', async ({ page }) => {
+test('early cycle frame mean stays inside the money-shot band', async ({ page }) => {
+  // The frozen frame is dimmest at 0.6 sim-s (53.6), then brightens: 62 at
+  // 3 sim-s, 74 at 5. Sim time never outruns wall time, so the 3 s wait
+  // caps the sample at 3 sim-s on any frame rate; the CI runner renders
+  // 0.6-1.9 fps and samples before 0.4 sim-s. Bloom composited at 3 * strength
+  // (see postChain.ts) reads 113.8 at its dimmest. The ceiling is midway
+  // between 62 and 113.8. The CI runner and local SwiftShader agree within 1
+  // at equal sim time (CI runs 37379294169, 37379294338, 37379294346).
+  await page.goto('/?seed=7&t=0.05&tier=high');
+  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
+  await page.waitForTimeout(3000);
+  const mean = frameMean(PNG.sync.read(await page.screenshot()));
+  expect(mean).toBeGreaterThan(2);
+  expect(mean).toBeLessThan(88);
+});
+
+test('early cycle shadow center is black', async ({ page }) => {
   // The shadow-center gate is tuned to the local software stack and real GPUs
   // (both render the recarved horizon black). The ubuntu runner's ANGLE stack
   // renders it bright (~77 mean, run 28883660525) — a software-renderer-only
@@ -192,9 +208,6 @@ test('early cycle still passes the money-shot gates', async ({ page }) => {
   for (let y = cy - 6; y <= cy + 6; y++)
     for (let x = cx - 6; x <= cx + 6; x++) shadowSum += luminanceAt(png, x, y);
   expect(shadowSum / 169).toBeLessThan(10);
-  const mean = frameMean(png);
-  expect(mean).toBeGreaterThan(2);
-  expect(mean).toBeLessThan(110);
 });
 
 test('all worlds are alive early in the cycle', async ({ page }) => {
