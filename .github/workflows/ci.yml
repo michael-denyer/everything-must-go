@@ -71,7 +71,7 @@ jobs:
         with:
           path: dist
       - id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
       - name: Verify deployed site
         run: |
           status=$(curl -f -L --retry 6 --retry-delay 10 --retry-all-errors -o response.html -w '%{http_code}' "https://michael-denyer.github.io/everything-must-go/")
