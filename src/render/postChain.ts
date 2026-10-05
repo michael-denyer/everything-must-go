@@ -41,9 +41,14 @@ export function createPostChain(
   // the bright ring at any strength) — the fix is the recarve pass below,
   // which is the final multiply against the shadow radius and restores a
   // pitch-black horizon by construction regardless of bloom strength.
+  //
+  // Through three r181 the pass composited bloom at 3 * strength^2 (strength
+  // scaled both the colour and the alpha its additive blend multiplied by);
+  // r182's premultiplied blend makes it 3 * strength. BLOOM_STRENGTH and the
+  // tier scales were tuned on the old curve, so square to keep that look.
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(innerWidth, innerHeight),
-    BLOOM_STRENGTH * quality.bloomStrengthScale,
+    (BLOOM_STRENGTH * quality.bloomStrengthScale) ** 2,
     BLOOM_RADIUS,
     BLOOM_THRESHOLD,
   );

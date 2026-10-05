@@ -403,16 +403,15 @@ test('a compressed cycle survives rebirth without console errors', async ({ page
   // The historical stale-params corruption itself measured ~31 (inside this band);
   // the reorder in main.ts frame() is the real guard against that class — this
   // check only catches its extreme ends.
-  // The rebirth whiteout (flashDecay -0.8/s of dt, with dt clamped at MAX_DT)
-  // decays in wall time scaled by that clamping — ~5s at 8 fps, ~1.3s at 120 fps —
-  // so poll past it before judging the reborn frame (measured 155 mid-flash at +3s).
-  const rebirthDeadline = Date.now() + 30_000;
-  let rebirthMean = Number.POSITIVE_INFINITY;
-  while (Date.now() < rebirthDeadline) {
-    await page.waitForTimeout(2000);
-    rebirthMean = frameMean(PNG.sync.read(await page.screenshot()));
-    if (rebirthMean < 110) break;
-  }
+  // A healthy reborn frame is only inside the band for part of cosmos no. 2:
+  // the whiteout (flashDecay, 1.25 sim-s) and the fresh disk hold it above 110
+  // until ~3.5 sim-s (139 as the flash clears), and it peaks at 118 again around
+  // 11.4 sim-s. Sample at 15% consumed (6.75 sim-s), near the floor (82 at 7.1).
+  // Progress is sim time, so the sample lands on the same point at any frame rate.
+  await page.waitForFunction(
+    () => (window as unknown as { __emg: { params: { progress: number } } }).__emg.params.progress >= 0.15,
+  );
+  const rebirthMean = frameMean(PNG.sync.read(await page.screenshot()));
   expect(rebirthMean).toBeGreaterThan(2);
   expect(rebirthMean).toBeLessThan(110);
 });

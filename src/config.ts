@@ -25,6 +25,7 @@ export const CAM_FOV = 50;
 // keeps the pre-halo brightness gates valid (0.28 washed the early frame past them).
 // The shadow horizon is no longer at risk from bloom refill: shadowRecarve.ts runs
 // last and re-masks the shadow radius regardless of how strong bloom gets.
+// Passed squared to UnrealBloomPass (see postChain.ts).
 export const BLOOM_STRENGTH = 0.16;
 export const BLOOM_RADIUS = 0.02;
 export const BLOOM_THRESHOLD = 1.5;
