@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAM_POS, DISK_THICKNESS, GM, MAX_DT, PROBE_MIN_FPS, SHADOW_R, WELL_STRENGTH } from './config';
+import { CAM_POS, DISK_THICKNESS, GM, PROBE_MIN_FPS, SHADOW_R, WELL_STRENGTH } from './config';
 import {
   TIERS,
   chooseInitialTier,
@@ -12,6 +12,7 @@ import {
 import { createScene } from './scene';
 import { generateCosmos, type CosmosSpec } from './core/cosmosGen';
 import { evalCycle } from './core/cycle';
+import { frameDt } from './core/frameDt';
 import { generatePalette, paletteRgb } from './core/palette';
 import { GpuSim } from './sim/gpuSim';
 import { mulberry32 } from './sim/random';
@@ -511,7 +512,7 @@ function frame(now: number): void {
     return;
   }
   const rawDt = (now - last) / 1000;
-  const dt = Math.min(MAX_DT, rawDt) || 1 / 60;
+  const dt = frameDt(rawDt);
   last = now;
 
   // Tier governance samples the RAW frame delta — the MAX_DT clamp floors
