@@ -46,7 +46,7 @@ export function createAudioEngine(): AudioEngine {
   let wet: GainNode | null = null; // reverb wet level — ramped with mute so no ~3s tail escapes it
   let comp: DynamicsCompressorNode | null = null; // catches peaks of the busy mix
   let analyser: AnalyserNode | null = null;
-  let analyserBuf: Uint8Array | null = null;
+  let analyserBuf: Uint8Array<ArrayBuffer> | null = null;
   let chirp: { osc: OscillatorNode; gain: GainNode } | null = null;
 
   const persistentOscs: OscillatorNode[] = []; // only the chirp — the arrangement uses short-lived per-note oscillators
