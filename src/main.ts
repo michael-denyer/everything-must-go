@@ -764,6 +764,10 @@ function frame(now: number): void {
   (window as unknown as { __emg: object }).__emg = {
     spec,
     params: p,
+    // Sim time since this cosmos was seeded. It keeps running under a t=
+    // freeze, where params.progress is pinned, so e2e can wait on it for
+    // state that settles in sim time rather than wall time.
+    simSeconds: cycleT,
     alive: aliveCounts,
     debrisAlive: debris.aliveCount(),
     tier: currentTier,

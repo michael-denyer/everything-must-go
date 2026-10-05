@@ -1,6 +1,24 @@
 // e2e/cycle.spec.ts
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
+
+// A fresh load frozen past progress 0.88 seeds a full disk with respawn off.
+// The disk collapses onto the hole and the frame reads bright (mean 91-94)
+// until the last gas is culled: seed 7 drops under the darkness gate at 1.66
+// sim-seconds, seed 1 settles at 1.05. The sim advances at most MAX_DT
+// (1/30 s) per rendered frame, so the drain is paced by frames, not wall
+// time. The CI runner renders this load at about 0.7 fps, which puts the end
+// of the collapse 70-80 s after load, so wait on the sim clock instead: 75
+// frames at that rate is about 105 s, inside the timeout.
+const DISK_DRAIN_SIM_SECONDS = 2.5;
+
+async function waitForDiskDrain(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (seconds) => ((window as unknown as { __emg?: { simSeconds: number } }).__emg?.simSeconds ?? 0) >= seconds,
+    DISK_DRAIN_SIM_SECONDS,
+    { timeout: 240_000 },
+  );
+}
 
 function luminanceAt(png: PNG, x: number, y: number): number {
   const i = (png.width * y + x) << 2;
@@ -159,18 +177,29 @@ test('same seed produces the same cosmos spec', async ({ page }) => {
   expect(cPlanets).not.toBe(aPlanets);
 });
 
-test('darkness phase is near-black with the counter reading 95%', async ({ page }) => {
-  test.setTimeout(120_000);
+test('a late first frame does not step the sim backwards', async ({ page }) => {
+  // The first rAF timestamp predates main.ts's module-init clock, by 0.3-0.5 s
+  // on the CI runner. A backward step that size flings the disk outward: the
+  // frozen-darkness collapse then peaks at 120-135 instead of 94 and can stay
+  // above the darkness gate past 6 sim-seconds. Force a 2 s gap by running
+  // every rAF timestamp 2 s behind performance.now().
+  await page.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb: FrameRequestCallback): number => raf((now) => cb(now - 2000));
+  });
   await page.goto('/?seed=7&t=0.95&tier=high');
-  // Fresh-load disk must drain at frozen progress before darkness is measurable
-  // (settled ~7.4, mid-drain ~14), so poll until the frame settles below the gate.
-  const deadline = Date.now() + 75_000;
-  let mean = Number.POSITIVE_INFINITY;
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(3000);
-    mean = frameMean(PNG.sync.read(await page.screenshot()));
-    if (mean < 8) break;
-  }
+  const simSeconds = await page.waitForFunction(
+    () => (window as unknown as { __emg?: { simSeconds: number } }).__emg?.simSeconds,
+  );
+  expect(await simSeconds.jsonValue()).toBeGreaterThan(0);
+});
+
+test('darkness phase is near-black with the counter reading 95%', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/?seed=7&t=0.95&tier=high');
+  await waitForDiskDrain(page);
+  // Settled 7.44; see waitForDiskDrain for the bright collapse that precedes it.
+  const mean = frameMean(PNG.sync.read(await page.screenshot()));
   expect(mean).toBeLessThan(8);
   await expect(page.locator('#counter')).toContainText('95% consumed');
 });
@@ -514,7 +543,7 @@ function nebulaRegionMean(png: PNG): number {
 }
 
 test('the deep sky dims with the cosmos (off-disk nebula region fades by late carnage)', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
 
   await page.goto('/?seed=1&t=0.05&tier=high');
   await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
@@ -522,15 +551,8 @@ test('the deep sky dims with the cosmos (off-disk nebula region fades by late ca
   const earlyMean = nebulaRegionMean(PNG.sync.read(await page.screenshot()));
 
   await page.goto('/?seed=1&t=0.95&tier=high');
-  await page.waitForFunction(() => (window as unknown as { __emg?: object }).__emg !== undefined);
-  const deadline = Date.now() + 75_000;
-  let lateMean = earlyMean;
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(3000);
-    const png = PNG.sync.read(await page.screenshot());
-    lateMean = nebulaRegionMean(png);
-    if (frameMean(png) < 8) break;
-  }
+  await waitForDiskDrain(page);
+  const lateMean = nebulaRegionMean(PNG.sync.read(await page.screenshot()));
 
   // Non-vacuous: the deep sky is actually present in this region early (would be
   // ~0 if the sky rendered invisible)...
